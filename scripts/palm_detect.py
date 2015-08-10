@@ -2,9 +2,9 @@ import numpy as np
 import cv2
 import sys
 
-#face_cascade = cv2.CascadeClassifier('../data/haarcascades/haarcascade_frontalface_default.xml')
+face_cascade = cv2.CascadeClassifier('../data/haarcascades/haarcascade_frontalface_default.xml')
 eye_cascade = cv2.CascadeClassifier('../data/haarcascades/haarcascade_eye.xml')
-face_cascade = cv2.CascadeClassifier('../data/hand/palm.xml')
+#face_cascade = cv2.CascadeClassifier('../data/hand/palm.xml')
 
 cap = cv2.VideoCapture(0)
 
@@ -23,10 +23,10 @@ while True:
         faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
         for (x,y,w,h) in faces:
-            x += (0.25*w)
-            w *= 0.6
-            y += (0.25*h)
-            h *= 0.6
+#             x += (0.25*w)
+#             w *= 0.6
+#             y += (0.25*h)
+#             h *= 0.6
             x,y,w,h = [int(k) for k in (x,y,w,h)]
 
             img = cv2.rectangle(resized, (x, y), (x+w, y+h), (255,0,0), 2)
