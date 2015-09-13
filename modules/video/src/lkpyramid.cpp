@@ -221,6 +221,7 @@ typedef float acctype;
 typedef float itemtype;
 #endif
 
+////Actually the Bouguet implementation should be here
 void cv::detail::LKTrackerInvoker::operator()(const Range& range) const
 {
     Point2f halfWin((winSize.width-1)*0.5f, (winSize.height-1)*0.5f);
@@ -680,6 +681,7 @@ void cv::detail::LKTrackerInvoker::operator()(const Range& range) const
             b1 = ib1*FLT_SCALE;
             b2 = ib2*FLT_SCALE;
 
+	    ////This is the (G^-1)*B multiplication
             Point2f delta( (float)((A12*b2 - A22*b1) * D),
                           (float)((A12*b1 - A11*b2) * D));
             //delta = -delta;
@@ -687,9 +689,11 @@ void cv::detail::LKTrackerInvoker::operator()(const Range& range) const
             nextPt += delta;
             nextPts[ptidx] = nextPt + halfWin;
 
+	    ////What does ddot do?
             if( delta.ddot(delta) <= criteria.epsilon )
                 break;
 
+	    ////Here too - if delta + prevDelta < 0.01... does not move by much...move delta back
             if( j > 0 && std::abs(delta.x + prevDelta.x) < 0.01 &&
                std::abs(delta.y + prevDelta.y) < 0.01 )
             {
@@ -1085,6 +1089,8 @@ namespace cv
     }
 };
 
+////This is the implementation of the Bouguet paper
+////Read here
 void cv::calcOpticalFlowPyrLK( InputArray _prevImg, InputArray _nextImg,
                            InputArray _prevPts, InputOutputArray _nextPts,
                            OutputArray _status, OutputArray _err,
@@ -1347,6 +1353,9 @@ getRTMatrix( const Point2f* a, const Point2f* b,
 
 }
 
+////What does this rigid transform do? Is it simily to estimate the rigid body transformation
+////given two sets of corresponding points? Or 2 images?
+////Computes an optimal affine transformation between two 2D point sets/images (both)
 cv::Mat cv::estimateRigidTransform( InputArray src1, InputArray src2, bool fullAffine )
 {
     Mat M(2, 3, CV_64F), A = src1.getMat(), B = src2.getMat();
