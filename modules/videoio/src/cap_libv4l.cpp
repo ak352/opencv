@@ -102,7 +102,7 @@ I modified the following:
     autosetup_capture_mode_v4l2 -> autodetect capture modes for v4l2
   - Modifications are according with Video4Linux old codes
   - Video4Linux handling is automatically if it does not recognize a Video4Linux2 device
-  - Tested succesful with Logitech Quickcam Express (V4L), Creative Vista (V4L) and Genius VideoCam Notebook (V4L2)
+  - Tested successfully with Logitech Quickcam Express (V4L), Creative Vista (V4L) and Genius VideoCam Notebook (V4L2)
   - Correct source lines with compiler warning messages
   - Information message from v4l/v4l2 detection
 
@@ -113,7 +113,7 @@ I modified the following:
   - SN9C10x chip based webcams support
   - New methods are internal:
     bayer2rgb24, sonix_decompress -> decoder routines for SN9C10x decoding from Takafumi Mizuno <taka-qce@ls-a.jp> with his pleasure :)
-  - Tested succesful with Genius VideoCam Notebook (V4L2)
+  - Tested successfully with Genius VideoCam Notebook (V4L2)
 
 Sixth Patch: Sept 10, 2005 Csaba Kertesz sign@freemail.hu
 For Release:  OpenCV-Linux Beta5 OpenCV-0.9.7
@@ -123,7 +123,7 @@ I added the following:
   - Get and change V4L capture controls (hue, saturation, brightness, contrast)
   - New method is internal:
     icvSetControl -> set capture controls
-  - Tested succesful with Creative Vista (V4L)
+  - Tested successfully with Creative Vista (V4L)
 
 Seventh Patch: Sept 10, 2005 Csaba Kertesz sign@freemail.hu
 For Release:  OpenCV-Linux Beta5 OpenCV-0.9.7
@@ -132,7 +132,7 @@ I added the following:
   - Detect, get and change V4L2 capture controls (hue, saturation, brightness, contrast, gain)
   - New methods are internal:
     v4l2_scan_controls_enumerate_menu, v4l2_scan_controls -> detect capture control intervals
-  - Tested succesful with Genius VideoCam Notebook (V4L2)
+  - Tested successfully with Genius VideoCam Notebook (V4L2)
 
 8th patch: Jan 5, 2006, Olivier.Bornet@idiap.ch
 Add support of V4L2_PIX_FMT_YUYV and V4L2_PIX_FMT_MJPEG.
@@ -190,6 +190,10 @@ make & enjoy!
     - PlayStation 3 Eye
     - Logitech C920
     - Odroid USB-CAM 720P
+
+17th patch: May 9, 2015, Matt Sandler
+ added supported for CV_CAP_PROP_POS_MSEC, CV_CAP_PROP_POS_FRAMES, CV_CAP_PROP_FPS
+
 */
 
 /*M///////////////////////////////////////////////////////////////////////////////////////
@@ -332,6 +336,11 @@ typedef struct CvCaptureCAM_V4L
    struct v4l2_control control;
    enum v4l2_buf_type type;
    struct v4l2_queryctrl queryctrl;
+
+   struct timeval timestamp;
+
+   /** value set the buffer of V4L*/
+   int sequence;
 
    /* V4L2 control variables */
    v4l2_ctrl_range** v4l2_ctrl_ranges;
@@ -646,6 +655,8 @@ static inline int channels_for_mode(int mode)
     switch(mode) {
     case CV_CAP_MODE_GRAY:
         return 1;
+    case CV_CAP_MODE_YUYV:
+        return 2;
     default:
         return 3;
     }
@@ -713,31 +724,26 @@ static int _capture_V4L2 (CvCaptureCAM_V4L *capture, char *deviceName)
   /* libv4l will convert from any format to V4L2_PIX_FMT_BGR24,
      V4L2_PIX_FMT_RGV24, or V4L2_PIX_FMT_YUV420 */
   unsigned int requestedPixelFormat;
-  int width;
-  int height;
   switch (capture->mode) {
   case CV_CAP_MODE_RGB:
     requestedPixelFormat = V4L2_PIX_FMT_RGB24;
-    width = capture->width;
-    height = capture->height;
     break;
   case CV_CAP_MODE_GRAY:
     requestedPixelFormat = V4L2_PIX_FMT_YUV420;
-    width = capture->width;
-    height = capture->height;
+    break;
+  case CV_CAP_MODE_YUYV:
+    requestedPixelFormat = V4L2_PIX_FMT_YUYV;
     break;
   default:
     requestedPixelFormat = V4L2_PIX_FMT_BGR24;
-    width = capture->width;
-    height = capture->height;
     break;
   }
   CLEAR (capture->form);
   capture->form.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   capture->form.fmt.pix.pixelformat = requestedPixelFormat;
   capture->form.fmt.pix.field       = V4L2_FIELD_ANY;
-  capture->form.fmt.pix.width       = width;
-  capture->form.fmt.pix.height      = height;
+  capture->form.fmt.pix.width       = capture->width;
+  capture->form.fmt.pix.height      = capture->height;
 
   if (-1 == xioctl (capture->deviceHandle, VIDIOC_S_FMT, &capture->form)) {
       fprintf(stderr, "VIDEOIO ERROR: libv4l unable to ioctl S_FMT\n");
@@ -949,6 +955,10 @@ static int _capture_V4L (CvCaptureCAM_V4L *capture, char *deviceName)
         requestedVideoPalette = VIDEO_PALETTE_YUV420;
         depth = 8;
         break;
+      case CV_CAP_MODE_YUYV:
+        requestedVideoPalette = VIDEO_PALETTE_YUYV;
+        depth = 16;
+        break;
       default:
         requestedVideoPalette = VIDEO_PALETTE_RGB24;
         depth = 24;
@@ -1123,6 +1133,11 @@ static int read_frame_v4l2(CvCaptureCAM_V4L* capture) {
    if (-1 == xioctl (capture->deviceHandle, VIDIOC_QBUF, &buf))
        perror ("VIDIOC_QBUF");
 
+   //set timestamp in capture struct to be timestamp of most recent frame
+   /** where timestamps refer to the instant the field or frame was received by the driver, not the capture time*/
+   capture->timestamp = buf.timestamp;   //printf( "timestamp update done \n");
+   capture->sequence = buf.sequence;
+
    return 1;
 }
 
@@ -1236,16 +1251,16 @@ static int icvGrabFrameCAM_V4L(CvCaptureCAM_V4L* capture) {
    } else
    {
 
-     capture->mmaps[capture->bufferIndex].frame  = capture->bufferIndex;
-     capture->mmaps[capture->bufferIndex].width  = capture->captureWindow.width;
-     capture->mmaps[capture->bufferIndex].height = capture->captureWindow.height;
-     capture->mmaps[capture->bufferIndex].format = capture->imageProperties.palette;
+   capture->mmaps[capture->bufferIndex].frame  = capture->bufferIndex;
+   capture->mmaps[capture->bufferIndex].width  = capture->captureWindow.width;
+   capture->mmaps[capture->bufferIndex].height = capture->captureWindow.height;
+   capture->mmaps[capture->bufferIndex].format = capture->imageProperties.palette;
 
-     if (v4l1_ioctl (capture->deviceHandle, VIDIOCMCAPTURE,
-    &capture->mmaps[capture->bufferIndex]) == -1) {
-   /* capture is on the way, so just exit */
-   return 1;
-     }
+   if (v4l1_ioctl (capture->deviceHandle, VIDIOCMCAPTURE,
+           &capture->mmaps[capture->bufferIndex]) == -1) {
+      /* capture is on the way, so just exit */
+      return 1;
+   }
 
      ++capture->bufferIndex;
      if (capture->bufferIndex == capture->memoryBuffer.frames) {
@@ -1319,6 +1334,7 @@ static IplImage* icvRetrieveFrameCAM_V4L( CvCaptureCAM_V4L* capture, int) {
     switch(capture->imageProperties.palette) {
       case VIDEO_PALETTE_RGB24:
       case VIDEO_PALETTE_YUV420:
+      case VIDEO_PALETTE_YUYV:
         memcpy((char *)capture->frame.imageData,
            (char *)(capture->memoryMap + capture->memoryBuffer.offsets[capture->bufferIndex]),
            capture->frame.imageSize);
@@ -1360,6 +1376,36 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
         }
       }
       return (property_id == CV_CAP_PROP_FRAME_WIDTH)?capture->form.fmt.pix.width:capture->form.fmt.pix.height;
+
+    case CV_CAP_PROP_POS_MSEC:
+        if (capture->FirstCapture) {
+            return 0;
+        } else {
+            //would be maximally numerically stable to cast to convert as bits, but would also be counterintuitive to decode
+            return 1000 * capture->timestamp.tv_sec + ((double) capture->timestamp.tv_usec) / 1000;
+        }
+        break;
+
+    case CV_CAP_PROP_POS_FRAMES:
+        return capture->sequence;
+        break;
+
+    case CV_CAP_PROP_FPS: {
+        struct v4l2_streamparm sp;
+        memset (&sp, 0, sizeof(struct v4l2_streamparm));
+        sp.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        if (xioctl (capture->deviceHandle, VIDIOC_G_PARM, &sp) < 0){
+            fprintf(stderr, "VIDEOIO ERROR: V4L: Unable to get camera FPS\n");
+            return (double) -1;
+        }
+
+        // this is the captureable, not per say what you'll get..
+        double framesPerSec = sp.parm.capture.timeperframe.denominator / (double)  sp.parm.capture.timeperframe.numerator ;
+        return framesPerSec;
+    }
+    break;
+
+
     case CV_CAP_PROP_MODE:
       return capture->mode;
       break;
@@ -1387,6 +1433,30 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
       sprintf(name, "Exposure");
       capture->control.id = V4L2_CID_EXPOSURE;
       break;
+    case CV_CAP_PROP_FOCUS: {
+      struct v4l2_control c;
+      int v4l2_min;
+      int v4l2_max;
+      //we need to make sure that the autofocus is switch off, if available.
+      capture->control.id = V4L2_CID_FOCUS_AUTO;
+      v4l2_min = v4l2_get_ctrl_min(capture, capture->control.id);
+      v4l2_max = v4l2_get_ctrl_max(capture, capture->control.id);
+      if ( !((v4l2_min == -1) && (v4l2_max == -1)) ) {
+        //autofocus capability is supported, switch it off.
+        c.id    = capture->control.id;
+        c.value = 0;//off
+        if( v4l2_ioctl(capture->deviceHandle, VIDIOC_S_CTRL, &c) != 0 ){
+          if (errno != ERANGE) {
+            fprintf(stderr, "VIDEOIO ERROR: V4L2: Failed to set control \"%d\"(FOCUS_AUTO): %s (value %d)\n", c.id, strerror(errno), c.value);
+            return -1;
+          }
+        }
+      }//lack of support should not be considerred an error.
+
+      sprintf(name, "Focus");
+      capture->control.id = V4L2_CID_FOCUS_ABSOLUTE;
+      break;
+    }
     default:
       sprintf(name, "<unknown property string>");
       capture->control.id = property_id;
@@ -1464,6 +1534,10 @@ static int icvSetVideoSize( CvCaptureCAM_V4L* capture, int w, int h) {
       cropHeight = h*8;
       cropWidth = w*8;
       break;
+    case CV_CAP_MODE_YUYV:
+      cropHeight = h*16;
+      cropWidth = w*16;
+      break;
     default:
       cropHeight = h*24;
       cropWidth = w*24;
@@ -1501,12 +1575,16 @@ static int icvSetVideoSize( CvCaptureCAM_V4L* capture, int w, int h) {
     xioctl (capture->deviceHandle, VIDIOC_S_FMT, &capture->form);
 
     /* try to set framerate to 30 fps */
+
     struct v4l2_streamparm setfps;
     memset (&setfps, 0, sizeof(struct v4l2_streamparm));
+
     setfps.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     setfps.parm.capture.timeperframe.numerator = 1;
     setfps.parm.capture.timeperframe.denominator = 30;
+
     xioctl (capture->deviceHandle, VIDIOC_S_PARM, &setfps);
+
 
     /* we need to re-initialize some things, like buffers, because the size has
      * changed */
@@ -1595,6 +1673,27 @@ static int icvSetControl (CvCaptureCAM_V4L* capture, int property_id, double val
     case CV_CAP_PROP_EXPOSURE:
       sprintf(name, "Exposure");
       capture->control.id = V4L2_CID_EXPOSURE;
+      break;
+    case CV_CAP_PROP_FOCUS:
+      //we need to make sure that the autofocus is switch off, if available.
+      capture->control.id = V4L2_CID_FOCUS_AUTO;
+      v4l2_min = v4l2_get_ctrl_min(capture, capture->control.id);
+      v4l2_max = v4l2_get_ctrl_max(capture, capture->control.id);
+      if ( !((v4l2_min == -1) && (v4l2_max == -1)) ) {
+        //autofocus capability is supported, switch it off.
+        c.id    = capture->control.id;
+        c.value = 0;//off
+        if( v4l2_ioctl(capture->deviceHandle, VIDIOC_S_CTRL, &c) != 0 ){
+          if (errno != ERANGE) {
+            fprintf(stderr, "VIDEOIO ERROR: V4L2: Failed to set control \"%d\"(FOCUS_AUTO): %s (value %d)\n", c.id, strerror(errno), c.value);
+            return -1;
+          }
+        }
+      }//lack of support should not be considerred an error.
+
+      //now set the manual focus
+      sprintf(name, "Focus");
+      capture->control.id = V4L2_CID_FOCUS_ABSOLUTE;
       break;
     default:
       sprintf(name, "<unknown property string>");
@@ -1719,6 +1818,7 @@ static int icvSetPropertyCAM_V4L(CvCaptureCAM_V4L* capture, int property_id, dou
             case CV_CAP_MODE_BGR:
             case CV_CAP_MODE_RGB:
             case CV_CAP_MODE_GRAY:
+            case CV_CAP_MODE_YUYV:
                 capture->mode = mode;
                 /* recreate the capture buffer for the same output resolution
                    but a different pixel format */

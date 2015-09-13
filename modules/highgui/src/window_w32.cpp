@@ -48,6 +48,11 @@
 #  pragma GCC diagnostic ignored "-Wmissing-declarations"
 #endif
 
+#if (_WIN32_IE < 0x0500)
+#pragma message("WARNING: Win32 UI needs to be compiled with _WIN32_IE >= 0x0500 (_WIN32_IE_IE50)")
+#define _WIN32_IE 0x0500
+#endif
+
 #include <commctrl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -254,6 +259,8 @@ CV_IMPL int cvInitSystem( int, char** )
 
         wasInitialized = 1;
     }
+
+    setlocale(LC_NUMERIC,"C");
 
     return 0;
 }
@@ -731,6 +738,11 @@ CV_IMPL int cvNamedWindow( const char* name, int flags )
 
     if( !(flags & CV_WINDOW_AUTOSIZE))//YV add border in order to resize the window
        defStyle |= WS_SIZEBOX;
+
+#ifdef HAVE_OPENGL
+    if (flags & CV_WINDOW_OPENGL)
+        defStyle |= WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+#endif
 
     icvLoadWindowPos( name, rect );
 
@@ -1862,21 +1874,38 @@ static void showSaveDialog(CvWindow* window)
     ofn.lStructSize = sizeof(ofn);
 #endif
     ofn.hwndOwner = window->hwnd;
-    ofn.lpstrFilter = "Portable Network Graphics files (*.png)\0*.png\0"
-                      "JPEG files (*.jpeg;*.jpg;*.jpe)\0*.jpeg;*.jpg;*.jpe\0"
+    ofn.lpstrFilter =
+#ifdef HAVE_PNG
+                      "Portable Network Graphics files (*.png)\0*.png\0"
+#endif
                       "Windows bitmap (*.bmp;*.dib)\0*.bmp;*.dib\0"
+#ifdef HAVE_JPEG
+                      "JPEG files (*.jpeg;*.jpg;*.jpe)\0*.jpeg;*.jpg;*.jpe\0"
+#endif
+#ifdef HAVE_TIFF
                       "TIFF Files (*.tiff;*.tif)\0*.tiff;*.tif\0"
+#endif
+#ifdef HAVE_JASPER
                       "JPEG-2000 files (*.jp2)\0*.jp2\0"
+#endif
+#ifdef HAVE_WEBP
                       "WebP files (*.webp)\0*.webp\0"
+#endif
                       "Portable image format (*.pbm;*.pgm;*.ppm;*.pxm;*.pnm)\0*.pbm;*.pgm;*.ppm;*.pxm;*.pnm\0"
+#ifdef HAVE_OPENEXR
                       "OpenEXR Image files (*.exr)\0*.exr\0"
+#endif
                       "Radiance HDR (*.hdr;*.pic)\0*.hdr;*.pic\0"
                       "Sun raster files (*.sr;*.ras)\0*.sr;*.ras\0"
                       "All Files (*.*)\0*.*\0";
     ofn.lpstrFile = szFileName;
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_NOREADONLYRETURN | OFN_NOCHANGEDIR;
+#ifdef HAVE_PNG
     ofn.lpstrDefExt = "png";
+#else
+    ofn.lpstrDefExt = "bmp";
+#endif
 
     if (GetSaveFileName(&ofn))
     {
@@ -2007,8 +2036,8 @@ icvCreateTrackbar( const char* trackbar_name, const char* window_name,
     trackbar = icvFindTrackbarByName(window,trackbar_name);
     if( !trackbar )
     {
-        TBBUTTON tbs = {0};
-        TBBUTTONINFO tbis = {0};
+        TBBUTTON tbs = {};
+        TBBUTTONINFO tbis = {};
         RECT rect;
         int bcount;
         int len = (int)strlen( trackbar_name );

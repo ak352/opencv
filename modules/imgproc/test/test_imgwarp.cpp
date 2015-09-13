@@ -1595,7 +1595,10 @@ void resizeArea(const cv::Mat & src, cv::Mat & dst)
 TEST(Resize, Area_half)
 {
     const int size = 1000;
-    int types[] = { CV_8UC1, CV_8UC4, CV_16UC1, CV_16UC4, CV_16SC1, CV_16SC4, CV_32FC1, CV_32FC4 };
+    int types[] = { CV_8UC1, CV_8UC4,
+                    CV_16UC1, CV_16UC4,
+                    CV_16SC1, CV_16SC3, CV_16SC4,
+                    CV_32FC1, CV_32FC4 };
 
     cv::RNG rng(17);
 
@@ -1626,6 +1629,66 @@ TEST(Resize, Area_half)
         cv::resize(src, dst_actual, dst_actual.size(), 0, 0, cv::INTER_AREA);
 
         ASSERT_GE(eps, cvtest::norm(dst_reference, dst_actual, cv::NORM_INF));
+    }
+}
+
+TEST(Imgproc_Warp, multichannel)
+{
+    RNG& rng = theRNG();
+    for( int iter = 0; iter < 30; iter++ )
+    {
+        int width = rng.uniform(3, 333);
+        int height = rng.uniform(3, 333);
+        int cn = rng.uniform(1, 10);
+        Mat src(height, width, CV_8UC(cn)), dst;
+        //randu(src, 0, 256);
+        src.setTo(0.);
+
+        Mat rot = getRotationMatrix2D(Point2f(0.f, 0.f), 1, 1);
+        warpAffine(src, dst, rot, src.size());
+        ASSERT_EQ(0.0, norm(dst, NORM_INF));
+        Mat rot2 = Mat::eye(3, 3, rot.type());
+        rot.copyTo(rot2.rowRange(0, 2));
+        warpPerspective(src, dst, rot2, src.size());
+        ASSERT_EQ(0.0, norm(dst, NORM_INF));
+    }
+}
+
+TEST(Imgproc_GetAffineTransform, singularity)
+{
+    Point2f A_sample[3];
+    A_sample[0] = Point2f(8.f, 9.f);
+    A_sample[1] = Point2f(40.f, 41.f);
+    A_sample[2] = Point2f(47.f, 48.f);
+    Point2f B_sample[3];
+    B_sample[0] = Point2f(7.37465f, 11.8295f);
+    B_sample[1] = Point2f(15.0113f, 12.8994f);
+    B_sample[2] = Point2f(38.9943f, 9.56297f);
+    Mat trans = getAffineTransform(A_sample, B_sample);
+    ASSERT_EQ(0.0, norm(trans, NORM_INF));
+}
+
+TEST(Imgproc_Remap, DISABLED_memleak)
+{
+    Mat src;
+    const int N = 400;
+    src.create(N, N, CV_8U);
+    randu(src, 0, 256);
+    Mat map_x, map_y, dst;
+    dst.create( src.size(), src.type() );
+    map_x.create( src.size(), CV_32FC1 );
+    map_y.create( src.size(), CV_32FC1 );
+    randu(map_x, 0., N+0.);
+    randu(map_y, 0., N+0.);
+
+    for( int iter = 0; iter < 10000; iter++ )
+    {
+        if(iter % 100 == 0)
+        {
+            putchar('.');
+            fflush(stdout);
+        }
+        remap(src, dst, map_x, map_y, CV_INTER_LINEAR);
     }
 }
 

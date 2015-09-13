@@ -80,7 +80,7 @@ public:
                               int _modelPoints=0, double _threshold=0, double _confidence=0.99, int _maxIters=1000)
     : cb(_cb), modelPoints(_modelPoints), threshold(_threshold), confidence(_confidence), maxIters(_maxIters)
     {
-        checkPartialSubsets = true;
+        checkPartialSubsets = false;
     }
 
     int findInliers( const Mat& m1, const Mat& m2, const Mat& model, Mat& err, Mat& mask, double thresh ) const
@@ -145,6 +145,9 @@ public:
                     ms2ptr[i*esz2 + k] = m2ptr[idx_i*esz2 + k];
                 if( checkPartialSubsets && !cb->checkSubset( ms1, ms2, i+1 ))
                 {
+                    // we may have selected some bad points;
+                    // so, let's remove some of them randomly
+                    i = rng.uniform(0, i+1);
                     iters++;
                     continue;
                 }
@@ -206,7 +209,7 @@ public:
             int i, goodCount, nmodels;
             if( count > modelPoints )
             {
-                bool found = getSubset( m1, m2, ms1, ms2, rng );
+                bool found = getSubset( m1, m2, ms1, ms2, rng, 10000 );
                 if( !found )
                 {
                     if( iter == 0 )
@@ -255,8 +258,6 @@ public:
     }
 
     void setCallback(const Ptr<PointSetRegistrator::Callback>& _cb) { cb = _cb; }
-
-    AlgorithmInfo* info() const;
 
     Ptr<PointSetRegistrator::Callback> cb;
     int modelPoints;
@@ -378,25 +379,12 @@ public:
         return result;
     }
 
-    AlgorithmInfo* info() const;
 };
-
-
-CV_INIT_ALGORITHM(RANSACPointSetRegistrator, "PointSetRegistrator.RANSAC",
-                  obj.info()->addParam(obj, "threshold", obj.threshold);
-                  obj.info()->addParam(obj, "confidence", obj.confidence);
-                  obj.info()->addParam(obj, "maxIters", obj.maxIters))
-
-CV_INIT_ALGORITHM(LMeDSPointSetRegistrator, "PointSetRegistrator.LMeDS",
-                  obj.info()->addParam(obj, "confidence", obj.confidence);
-                  obj.info()->addParam(obj, "maxIters", obj.maxIters))
-
 
 Ptr<PointSetRegistrator> createRANSACPointSetRegistrator(const Ptr<PointSetRegistrator::Callback>& _cb,
                                                          int _modelPoints, double _threshold,
                                                          double _confidence, int _maxIters)
 {
-    CV_Assert( !RANSACPointSetRegistrator_info_auto.name().empty() );
     return Ptr<PointSetRegistrator>(
         new RANSACPointSetRegistrator(_cb, _modelPoints, _threshold, _confidence, _maxIters));
 }
@@ -405,7 +393,6 @@ Ptr<PointSetRegistrator> createRANSACPointSetRegistrator(const Ptr<PointSetRegis
 Ptr<PointSetRegistrator> createLMeDSPointSetRegistrator(const Ptr<PointSetRegistrator::Callback>& _cb,
                              int _modelPoints, double _confidence, int _maxIters)
 {
-    CV_Assert( !LMeDSPointSetRegistrator_info_auto.name().empty() );
     return Ptr<PointSetRegistrator>(
         new LMeDSPointSetRegistrator(_cb, _modelPoints, _confidence, _maxIters));
 }

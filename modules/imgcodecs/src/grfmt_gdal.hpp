@@ -42,24 +42,30 @@
 #ifndef __GRFMT_GDAL_HPP__
 #define __GRFMT_GDAL_HPP__
 
+/// OpenCV FMT Base Type
+#include "grfmt_base.hpp"
+
 /// Macro to make sure we specified GDAL in CMake
 #ifdef HAVE_GDAL
 
 /// C++ Libraries
 #include <iostream>
 
-/// OpenCV Libraries
-#include "grfmt_base.hpp"
-#include "precomp.hpp"
-
 /// Geospatial Data Abstraction Library
-#include <gdal/cpl_conv.h>
-#include <gdal/gdal_priv.h>
-#include <gdal/gdal.h>
+#include <cpl_conv.h>
+#include <gdal_priv.h>
+#include <gdal.h>
 
 
 /// Start of CV Namespace
 namespace cv {
+
+/**
+ * Convert GDAL Pixel Range to OpenCV Pixel Range
+*/
+double range_cast( const GDALDataType& gdalType,
+                   const int& cvDepth,
+                   const double& value );
 
 /**
  * Convert GDAL Palette Interpretation to OpenCV Pixel Type

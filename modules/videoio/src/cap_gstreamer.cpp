@@ -525,7 +525,7 @@ void CvCapture_GStreamer::newPad(GstElement * /*elem*/,
  * \brief CvCapture_GStreamer::open Open the given file with gstreamer
  * \param type CvCapture type. One of CV_CAP_GSTREAMER_*
  * \param filename Filename to open in case of CV_CAP_GSTREAMER_FILE
- * \return boolean. Specifies if opening was succesful.
+ * \return boolean. Specifies if opening was successful.
  *
  * In case of CV_CAP_GSTREAMER_V4L(2), a pipelin is constructed as follows:
  *    v4l2src ! autoconvert ! appsink
@@ -574,7 +574,7 @@ bool CvCapture_GStreamer::open( int type, const char* filename )
             return false;
         }
         g_object_unref(G_OBJECT(testfac));
-        filename = "v4lsrc ! "COLOR_ELEM" ! appsink";
+        filename = "v4lsrc ! " COLOR_ELEM " ! appsink";
     }
     if (type == CV_CAP_GSTREAMER_V4L2){
         testfac = gst_element_factory_find("v4l2src");
@@ -582,7 +582,7 @@ bool CvCapture_GStreamer::open( int type, const char* filename )
             return false;
         }
         g_object_unref(G_OBJECT(testfac));
-        filename = "v4l2src ! "COLOR_ELEM" ! appsink";
+        filename = "v4l2src ! " COLOR_ELEM " ! appsink";
     }
 
 

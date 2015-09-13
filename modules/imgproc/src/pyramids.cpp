@@ -12,6 +12,7 @@
 //
 // Copyright (C) 2000-2008, Intel Corporation, all rights reserved.
 // Copyright (C) 2009, Willow Garage Inc., all rights reserved.
+// Copyright (C) 2014-2015, Itseez Inc., all rights reserved.
 // Third party copyrights are property of their respective owners.
 //
 // Redistribution and use in source and binary forms, with or without modification,
@@ -183,13 +184,336 @@ struct PyrDownVec_32f
     }
 };
 
-typedef PyrDownNoVec<int, ushort> PyrDownVec_32s16u;
-typedef PyrDownNoVec<int, short> PyrDownVec_32s16s;
+#if CV_SSE4_1
 
-typedef PyrUpNoVec<int, uchar> PyrUpVec_32s8u;
-typedef PyrUpNoVec<int, short> PyrUpVec_32s16s;
+struct PyrDownVec_32s16u
+{
+    PyrDownVec_32s16u()
+    {
+        haveSSE = checkHardwareSupport(CV_CPU_SSE4_1);
+    }
+
+    int operator()(int** src, ushort* dst, int, int width) const
+    {
+        int x = 0;
+
+        if (!haveSSE)
+            return x;
+
+        const int *row0 = src[0], *row1 = src[1], *row2 = src[2], *row3 = src[3], *row4 = src[4];
+        __m128i v_delta = _mm_set1_epi32(128);
+
+        for( ; x <= width - 8; x += 8 )
+        {
+            __m128i v_r00 = _mm_loadu_si128((__m128i const *)(row0 + x)),
+                    v_r01 = _mm_loadu_si128((__m128i const *)(row0 + x + 4));
+            __m128i v_r10 = _mm_loadu_si128((__m128i const *)(row1 + x)),
+                    v_r11 = _mm_loadu_si128((__m128i const *)(row1 + x + 4));
+            __m128i v_r20 = _mm_loadu_si128((__m128i const *)(row2 + x)),
+                    v_r21 = _mm_loadu_si128((__m128i const *)(row2 + x + 4));
+            __m128i v_r30 = _mm_loadu_si128((__m128i const *)(row3 + x)),
+                    v_r31 = _mm_loadu_si128((__m128i const *)(row3 + x + 4));
+            __m128i v_r40 = _mm_loadu_si128((__m128i const *)(row4 + x)),
+                    v_r41 = _mm_loadu_si128((__m128i const *)(row4 + x + 4));
+
+            v_r00 = _mm_add_epi32(_mm_add_epi32(v_r00, v_r40), _mm_add_epi32(v_r20, v_r20));
+            v_r10 = _mm_add_epi32(_mm_add_epi32(v_r10, v_r20), v_r30);
+
+            v_r10 = _mm_slli_epi32(v_r10, 2);
+            __m128i v_dst0 = _mm_srli_epi32(_mm_add_epi32(_mm_add_epi32(v_r00, v_r10), v_delta), 8);
+
+            v_r01 = _mm_add_epi32(_mm_add_epi32(v_r01, v_r41), _mm_add_epi32(v_r21, v_r21));
+            v_r11 = _mm_add_epi32(_mm_add_epi32(v_r11, v_r21), v_r31);
+            v_r11 = _mm_slli_epi32(v_r11, 2);
+            __m128i v_dst1 = _mm_srli_epi32(_mm_add_epi32(_mm_add_epi32(v_r01, v_r11), v_delta), 8);
+
+            _mm_storeu_si128((__m128i *)(dst + x), _mm_packus_epi32(v_dst0, v_dst1));
+        }
+
+        return x;
+    }
+
+    bool haveSSE;
+};
+
+#else
+
+typedef PyrDownNoVec<int, ushort> PyrDownVec_32s16u;
+
+#endif // CV_SSE4_1
+
+struct PyrDownVec_32s16s
+{
+    PyrDownVec_32s16s()
+    {
+        haveSSE = checkHardwareSupport(CV_CPU_SSE2);
+    }
+
+    int operator()(int** src, short* dst, int, int width) const
+    {
+        int x = 0;
+
+        if (!haveSSE)
+            return x;
+
+        const int *row0 = src[0], *row1 = src[1], *row2 = src[2], *row3 = src[3], *row4 = src[4];
+        __m128i v_delta = _mm_set1_epi32(128);
+
+        for( ; x <= width - 8; x += 8 )
+        {
+            __m128i v_r00 = _mm_loadu_si128((__m128i const *)(row0 + x)),
+                    v_r01 = _mm_loadu_si128((__m128i const *)(row0 + x + 4));
+            __m128i v_r10 = _mm_loadu_si128((__m128i const *)(row1 + x)),
+                    v_r11 = _mm_loadu_si128((__m128i const *)(row1 + x + 4));
+            __m128i v_r20 = _mm_loadu_si128((__m128i const *)(row2 + x)),
+                    v_r21 = _mm_loadu_si128((__m128i const *)(row2 + x + 4));
+            __m128i v_r30 = _mm_loadu_si128((__m128i const *)(row3 + x)),
+                    v_r31 = _mm_loadu_si128((__m128i const *)(row3 + x + 4));
+            __m128i v_r40 = _mm_loadu_si128((__m128i const *)(row4 + x)),
+                    v_r41 = _mm_loadu_si128((__m128i const *)(row4 + x + 4));
+
+            v_r00 = _mm_add_epi32(_mm_add_epi32(v_r00, v_r40), _mm_add_epi32(v_r20, v_r20));
+            v_r10 = _mm_add_epi32(_mm_add_epi32(v_r10, v_r20), v_r30);
+
+            v_r10 = _mm_slli_epi32(v_r10, 2);
+            __m128i v_dst0 = _mm_srai_epi32(_mm_add_epi32(_mm_add_epi32(v_r00, v_r10), v_delta), 8);
+
+            v_r01 = _mm_add_epi32(_mm_add_epi32(v_r01, v_r41), _mm_add_epi32(v_r21, v_r21));
+            v_r11 = _mm_add_epi32(_mm_add_epi32(v_r11, v_r21), v_r31);
+            v_r11 = _mm_slli_epi32(v_r11, 2);
+            __m128i v_dst1 = _mm_srai_epi32(_mm_add_epi32(_mm_add_epi32(v_r01, v_r11), v_delta), 8);
+
+            _mm_storeu_si128((__m128i *)(dst + x), _mm_packs_epi32(v_dst0, v_dst1));
+        }
+
+        return x;
+    }
+
+    bool haveSSE;
+};
+
+struct PyrUpVec_32s8u
+{
+    int operator()(int** src, uchar** dst, int, int width) const
+    {
+        int x = 0;
+
+        if (!checkHardwareSupport(CV_CPU_SSE2))
+            return x;
+
+        uchar *dst0 = dst[0], *dst1 = dst[1];
+        const uint *row0 = (uint *)src[0], *row1 = (uint *)src[1], *row2 = (uint *)src[2];
+        __m128i v_delta = _mm_set1_epi16(32), v_zero = _mm_setzero_si128();
+
+        for( ; x <= width - 16; x += 16 )
+        {
+            __m128i v_r0 = _mm_packs_epi32(_mm_loadu_si128((__m128i const *)(row0 + x)),
+                                           _mm_loadu_si128((__m128i const *)(row0 + x + 4)));
+            __m128i v_r1 = _mm_packs_epi32(_mm_loadu_si128((__m128i const *)(row1 + x)),
+                                           _mm_loadu_si128((__m128i const *)(row1 + x + 4)));
+            __m128i v_r2 = _mm_packs_epi32(_mm_loadu_si128((__m128i const *)(row2 + x)),
+                                           _mm_loadu_si128((__m128i const *)(row2 + x + 4)));
+
+            __m128i v_2r1 = _mm_adds_epu16(v_r1, v_r1), v_4r1 = _mm_adds_epu16(v_2r1, v_2r1);
+            __m128i v_dst00 = _mm_adds_epu16(_mm_adds_epu16(v_r0, v_r2), _mm_adds_epu16(v_2r1, v_4r1));
+            __m128i v_dst10 = _mm_slli_epi16(_mm_adds_epu16(v_r1, v_r2), 2);
+
+            v_r0 = _mm_packs_epi32(_mm_loadu_si128((__m128i const *)(row0 + x + 8)),
+                                   _mm_loadu_si128((__m128i const *)(row0 + x + 12)));
+            v_r1 = _mm_packs_epi32(_mm_loadu_si128((__m128i const *)(row1 + x + 8)),
+                                   _mm_loadu_si128((__m128i const *)(row1 + x + 12)));
+            v_r2 = _mm_packs_epi32(_mm_loadu_si128((__m128i const *)(row2 + x + 8)),
+                                   _mm_loadu_si128((__m128i const *)(row2 + x + 12)));
+
+            v_2r1 = _mm_adds_epu16(v_r1, v_r1), v_4r1 = _mm_adds_epu16(v_2r1, v_2r1);
+            __m128i v_dst01 = _mm_adds_epu16(_mm_adds_epu16(v_r0, v_r2), _mm_adds_epu16(v_2r1, v_4r1));
+            __m128i v_dst11 = _mm_slli_epi16(_mm_adds_epu16(v_r1, v_r2), 2);
+
+            _mm_storeu_si128((__m128i *)(dst0 + x), _mm_packus_epi16(_mm_srli_epi16(_mm_adds_epu16(v_dst00, v_delta), 6),
+                                                                     _mm_srli_epi16(_mm_adds_epu16(v_dst01, v_delta), 6)));
+            _mm_storeu_si128((__m128i *)(dst1 + x), _mm_packus_epi16(_mm_srli_epi16(_mm_adds_epu16(v_dst10, v_delta), 6),
+                                                                     _mm_srli_epi16(_mm_adds_epu16(v_dst11, v_delta), 6)));
+        }
+
+        for( ; x <= width - 8; x += 8 )
+        {
+            __m128i v_r0 = _mm_packs_epi32(_mm_loadu_si128((__m128i const *)(row0 + x)),
+                                           _mm_loadu_si128((__m128i const *)(row0 + x + 4)));
+            __m128i v_r1 = _mm_packs_epi32(_mm_loadu_si128((__m128i const *)(row1 + x)),
+                                           _mm_loadu_si128((__m128i const *)(row1 + x + 4)));
+            __m128i v_r2 = _mm_packs_epi32(_mm_loadu_si128((__m128i const *)(row2 + x)),
+                                           _mm_loadu_si128((__m128i const *)(row2 + x + 4)));
+
+            __m128i v_2r1 = _mm_adds_epu16(v_r1, v_r1), v_4r1 = _mm_adds_epu16(v_2r1, v_2r1);
+            __m128i v_dst0 = _mm_adds_epu16(_mm_adds_epu16(v_r0, v_r2), _mm_adds_epu16(v_2r1, v_4r1));
+            __m128i v_dst1 = _mm_slli_epi16(_mm_adds_epu16(v_r1, v_r2), 2);
+
+            _mm_storel_epi64((__m128i *)(dst0 + x), _mm_packus_epi16(_mm_srli_epi16(_mm_adds_epu16(v_dst0, v_delta), 6), v_zero));
+            _mm_storel_epi64((__m128i *)(dst1 + x), _mm_packus_epi16(_mm_srli_epi16(_mm_adds_epu16(v_dst1, v_delta), 6), v_zero));
+        }
+
+        return x;
+    }
+};
+
+struct PyrUpVec_32s16s
+{
+    int operator()(int** src, short** dst, int, int width) const
+    {
+        int x = 0;
+
+        if (!checkHardwareSupport(CV_CPU_SSE2))
+            return x;
+
+        short *dst0 = dst[0], *dst1 = dst[1];
+        const uint *row0 = (uint *)src[0], *row1 = (uint *)src[1], *row2 = (uint *)src[2];
+        __m128i v_delta = _mm_set1_epi32(32), v_zero = _mm_setzero_si128();
+
+        for( ; x <= width - 8; x += 8 )
+        {
+            __m128i v_r0 = _mm_loadu_si128((__m128i const *)(row0 + x)),
+                    v_r1 = _mm_loadu_si128((__m128i const *)(row1 + x)),
+                    v_r2 = _mm_loadu_si128((__m128i const *)(row2 + x));
+            __m128i v_2r1 = _mm_slli_epi32(v_r1, 1), v_4r1 = _mm_slli_epi32(v_r1, 2);
+            __m128i v_dst00 = _mm_add_epi32(_mm_add_epi32(v_r0, v_r2), _mm_add_epi32(v_2r1, v_4r1));
+            __m128i v_dst10 = _mm_slli_epi32(_mm_add_epi32(v_r1, v_r2), 2);
+
+            v_r0 = _mm_loadu_si128((__m128i const *)(row0 + x + 4));
+            v_r1 = _mm_loadu_si128((__m128i const *)(row1 + x + 4));
+            v_r2 = _mm_loadu_si128((__m128i const *)(row2 + x + 4));
+            v_2r1 = _mm_slli_epi32(v_r1, 1);
+            v_4r1 = _mm_slli_epi32(v_r1, 2);
+            __m128i v_dst01 = _mm_add_epi32(_mm_add_epi32(v_r0, v_r2), _mm_add_epi32(v_2r1, v_4r1));
+            __m128i v_dst11 = _mm_slli_epi32(_mm_add_epi32(v_r1, v_r2), 2);
+
+            _mm_storeu_si128((__m128i *)(dst0 + x),
+                _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(v_dst00, v_delta), 6),
+                                _mm_srai_epi32(_mm_add_epi32(v_dst01, v_delta), 6)));
+            _mm_storeu_si128((__m128i *)(dst1 + x),
+                _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(v_dst10, v_delta), 6),
+                                _mm_srai_epi32(_mm_add_epi32(v_dst11, v_delta), 6)));
+        }
+
+        for( ; x <= width - 4; x += 4 )
+        {
+            __m128i v_r0 = _mm_loadu_si128((__m128i const *)(row0 + x)),
+                    v_r1 = _mm_loadu_si128((__m128i const *)(row1 + x)),
+                    v_r2 = _mm_loadu_si128((__m128i const *)(row2 + x));
+            __m128i v_2r1 = _mm_slli_epi32(v_r1, 1), v_4r1 = _mm_slli_epi32(v_r1, 2);
+
+            __m128i v_dst0 = _mm_add_epi32(_mm_add_epi32(v_r0, v_r2), _mm_add_epi32(v_2r1, v_4r1));
+            __m128i v_dst1 = _mm_slli_epi32(_mm_add_epi32(v_r1, v_r2), 2);
+
+            _mm_storel_epi64((__m128i *)(dst0 + x),
+                _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(v_dst0, v_delta), 6), v_zero));
+            _mm_storel_epi64((__m128i *)(dst1 + x),
+                _mm_packs_epi32(_mm_srai_epi32(_mm_add_epi32(v_dst1, v_delta), 6), v_zero));
+        }
+
+        return x;
+    }
+};
+
+#if CV_SSE4_1
+
+struct PyrUpVec_32s16u
+{
+    int operator()(int** src, ushort** dst, int, int width) const
+    {
+        int x = 0;
+
+        if (!checkHardwareSupport(CV_CPU_SSE4_1))
+            return x;
+
+        ushort *dst0 = dst[0], *dst1 = dst[1];
+        const uint *row0 = (uint *)src[0], *row1 = (uint *)src[1], *row2 = (uint *)src[2];
+        __m128i v_delta = _mm_set1_epi32(32), v_zero = _mm_setzero_si128();
+
+        for( ; x <= width - 8; x += 8 )
+        {
+            __m128i v_r0 = _mm_loadu_si128((__m128i const *)(row0 + x)),
+                    v_r1 = _mm_loadu_si128((__m128i const *)(row1 + x)),
+                    v_r2 = _mm_loadu_si128((__m128i const *)(row2 + x));
+            __m128i v_2r1 = _mm_slli_epi32(v_r1, 1), v_4r1 = _mm_slli_epi32(v_r1, 2);
+            __m128i v_dst00 = _mm_add_epi32(_mm_add_epi32(v_r0, v_r2), _mm_add_epi32(v_2r1, v_4r1));
+            __m128i v_dst10 = _mm_slli_epi32(_mm_add_epi32(v_r1, v_r2), 2);
+
+            v_r0 = _mm_loadu_si128((__m128i const *)(row0 + x + 4));
+            v_r1 = _mm_loadu_si128((__m128i const *)(row1 + x + 4));
+            v_r2 = _mm_loadu_si128((__m128i const *)(row2 + x + 4));
+            v_2r1 = _mm_slli_epi32(v_r1, 1);
+            v_4r1 = _mm_slli_epi32(v_r1, 2);
+            __m128i v_dst01 = _mm_add_epi32(_mm_add_epi32(v_r0, v_r2), _mm_add_epi32(v_2r1, v_4r1));
+            __m128i v_dst11 = _mm_slli_epi32(_mm_add_epi32(v_r1, v_r2), 2);
+
+            _mm_storeu_si128((__m128i *)(dst0 + x),
+                _mm_packus_epi32(_mm_srli_epi32(_mm_add_epi32(v_dst00, v_delta), 6),
+                                 _mm_srli_epi32(_mm_add_epi32(v_dst01, v_delta), 6)));
+            _mm_storeu_si128((__m128i *)(dst1 + x),
+                _mm_packus_epi32(_mm_srli_epi32(_mm_add_epi32(v_dst10, v_delta), 6),
+                                 _mm_srli_epi32(_mm_add_epi32(v_dst11, v_delta), 6)));
+        }
+
+        for( ; x <= width - 4; x += 4 )
+        {
+            __m128i v_r0 = _mm_loadu_si128((__m128i const *)(row0 + x)),
+                    v_r1 = _mm_loadu_si128((__m128i const *)(row1 + x)),
+                    v_r2 = _mm_loadu_si128((__m128i const *)(row2 + x));
+            __m128i v_2r1 = _mm_slli_epi32(v_r1, 1), v_4r1 = _mm_slli_epi32(v_r1, 2);
+
+            __m128i v_dst0 = _mm_add_epi32(_mm_add_epi32(v_r0, v_r2), _mm_add_epi32(v_2r1, v_4r1));
+            __m128i v_dst1 = _mm_slli_epi32(_mm_add_epi32(v_r1, v_r2), 2);
+
+            _mm_storel_epi64((__m128i *)(dst0 + x),
+                _mm_packus_epi32(_mm_srli_epi32(_mm_add_epi32(v_dst0, v_delta), 6), v_zero));
+            _mm_storel_epi64((__m128i *)(dst1 + x),
+                _mm_packus_epi32(_mm_srli_epi32(_mm_add_epi32(v_dst1, v_delta), 6), v_zero));
+        }
+
+        return x;
+    }
+};
+
+#else
+
 typedef PyrUpNoVec<int, ushort> PyrUpVec_32s16u;
-typedef PyrUpNoVec<float, float> PyrUpVec_32f;
+
+#endif // CV_SSE4_1
+
+struct PyrUpVec_32f
+{
+    int operator()(float** src, float** dst, int, int width) const
+    {
+        int x = 0;
+
+        if (!checkHardwareSupport(CV_CPU_SSE2))
+            return x;
+
+        const float *row0 = src[0], *row1 = src[1], *row2 = src[2];
+        float *dst0 = dst[0], *dst1 = dst[1];
+        __m128 v_6 = _mm_set1_ps(6.0f), v_scale = _mm_set1_ps(1.f/64.0f),
+               v_scale4 = _mm_mul_ps(v_scale, _mm_set1_ps(4.0f));
+
+        for( ; x <= width - 8; x += 8 )
+        {
+            __m128 v_r0 = _mm_loadu_ps(row0 + x);
+            __m128 v_r1 = _mm_loadu_ps(row1 + x);
+            __m128 v_r2 = _mm_loadu_ps(row2 + x);
+
+            _mm_storeu_ps(dst1 + x, _mm_mul_ps(v_scale4, _mm_add_ps(v_r1, v_r2)));
+            _mm_storeu_ps(dst0 + x, _mm_mul_ps(v_scale, _mm_add_ps(_mm_add_ps(v_r0, _mm_mul_ps(v_6, v_r1)), v_r2)));
+
+            v_r0 = _mm_loadu_ps(row0 + x + 4);
+            v_r1 = _mm_loadu_ps(row1 + x + 4);
+            v_r2 = _mm_loadu_ps(row2 + x + 4);
+
+            _mm_storeu_ps(dst1 + x + 4, _mm_mul_ps(v_scale4, _mm_add_ps(v_r1, v_r2)));
+            _mm_storeu_ps(dst0 + x + 4, _mm_mul_ps(v_scale, _mm_add_ps(_mm_add_ps(v_r0, _mm_mul_ps(v_6, v_r1)), v_r2)));
+        }
+
+        return x;
+    }
+};
 
 #elif CV_NEON
 
@@ -842,103 +1166,22 @@ static bool ocl_pyrUp( InputArray _src, OutputArray _dst, const Size& _dsz, int 
 
 }
 
-void cv::pyrDown( InputArray _src, OutputArray _dst, const Size& _dsz, int borderType )
+#if defined(HAVE_IPP)
+namespace cv
 {
-    CV_Assert(borderType != BORDER_CONSTANT);
-
-    CV_OCL_RUN(_src.dims() <= 2 && _dst.isUMat(),
-               ocl_pyrDown(_src, _dst, _dsz, borderType))
+static bool ipp_pyrdown( InputArray _src, OutputArray _dst, const Size& _dsz, int borderType )
+{
+#if IPP_VERSION_X100 >= 801 && 0
+    Size dsz = _dsz.area() == 0 ? Size((_src.cols() + 1)/2, (_src.rows() + 1)/2) : _dsz;
+    bool isolated = (borderType & BORDER_ISOLATED) != 0;
+    int borderTypeNI = borderType & ~BORDER_ISOLATED;
 
     Mat src = _src.getMat();
-    Size dsz = _dsz.area() == 0 ? Size((src.cols + 1)/2, (src.rows + 1)/2) : _dsz;
     _dst.create( dsz, src.type() );
     Mat dst = _dst.getMat();
     int depth = src.depth();
 
-#ifdef HAVE_TEGRA_OPTIMIZATION
-    if(borderType == BORDER_DEFAULT && tegra::pyrDown(src, dst))
-        return;
-#endif
 
-#if IPP_VERSION_X100 >= 801 && 0
-    CV_IPP_CHECK()
-    {
-        bool isolated = (borderType & BORDER_ISOLATED) != 0;
-        int borderTypeNI = borderType & ~BORDER_ISOLATED;
-        if (borderTypeNI == BORDER_DEFAULT && (!src.isSubmatrix() || isolated) && dsz == Size((src.cols + 1)/2, (src.rows + 1)/2))
-        {
-            typedef IppStatus (CV_STDCALL * ippiPyrDown)(const void* pSrc, int srcStep, void* pDst, int dstStep, IppiSize srcRoi, Ipp8u* buffer);
-            int type = src.type();
-            CV_SUPPRESS_DEPRECATED_START
-            ippiPyrDown pyrDownFunc = type == CV_8UC1 ? (ippiPyrDown) ippiPyrDown_Gauss5x5_8u_C1R :
-                                      type == CV_8UC3 ? (ippiPyrDown) ippiPyrDown_Gauss5x5_8u_C3R :
-                                      type == CV_32FC1 ? (ippiPyrDown) ippiPyrDown_Gauss5x5_32f_C1R :
-                                      type == CV_32FC3 ? (ippiPyrDown) ippiPyrDown_Gauss5x5_32f_C3R : 0;
-            CV_SUPPRESS_DEPRECATED_END
-
-            if (pyrDownFunc)
-            {
-                int bufferSize;
-                IppiSize srcRoi = { src.cols, src.rows };
-                IppDataType dataType = depth == CV_8U ? ipp8u : ipp32f;
-                CV_SUPPRESS_DEPRECATED_START
-                IppStatus ok = ippiPyrDownGetBufSize_Gauss5x5(srcRoi.width, dataType, src.channels(), &bufferSize);
-                CV_SUPPRESS_DEPRECATED_END
-                if (ok >= 0)
-                {
-                    Ipp8u* buffer = ippsMalloc_8u(bufferSize);
-                    ok = pyrDownFunc(src.data, (int) src.step, dst.data, (int) dst.step, srcRoi, buffer);
-                    ippsFree(buffer);
-
-                    if (ok >= 0)
-                    {
-                        CV_IMPL_ADD(CV_IMPL_IPP);
-                        return;
-                    }
-                    setIppErrorStatus();
-                }
-            }
-        }
-    }
-#endif
-
-    PyrFunc func = 0;
-    if( depth == CV_8U )
-        func = pyrDown_<FixPtCast<uchar, 8>, PyrDownVec_32s8u>;
-    else if( depth == CV_16S )
-        func = pyrDown_<FixPtCast<short, 8>, PyrDownVec_32s16s >;
-    else if( depth == CV_16U )
-        func = pyrDown_<FixPtCast<ushort, 8>, PyrDownVec_32s16u >;
-    else if( depth == CV_32F )
-        func = pyrDown_<FltCast<float, 8>, PyrDownVec_32f>;
-    else if( depth == CV_64F )
-        func = pyrDown_<FltCast<double, 8>, PyrDownNoVec<double, double> >;
-    else
-        CV_Error( CV_StsUnsupportedFormat, "" );
-
-    func( src, dst, borderType );
-}
-
-void cv::pyrUp( InputArray _src, OutputArray _dst, const Size& _dsz, int borderType )
-{
-    CV_Assert(borderType == BORDER_DEFAULT);
-
-    CV_OCL_RUN(_src.dims() <= 2 && _dst.isUMat(),
-               ocl_pyrUp(_src, _dst, _dsz, borderType))
-
-    Mat src = _src.getMat();
-    Size dsz = _dsz.area() == 0 ? Size(src.cols*2, src.rows*2) : _dsz;
-    _dst.create( dsz, src.type() );
-    Mat dst = _dst.getMat();
-    int depth = src.depth();
-
-#ifdef HAVE_TEGRA_OPTIMIZATION
-    if(borderType == BORDER_DEFAULT && tegra::pyrUp(src, dst))
-        return;
-#endif
-
-#if IPP_VERSION_X100 >= 801 && 0
-    CV_IPP_CHECK()
     {
         bool isolated = (borderType & BORDER_ISOLATED) != 0;
         int borderTypeNI = borderType & ~BORDER_ISOLATED;
@@ -970,14 +1213,149 @@ void cv::pyrUp( InputArray _src, OutputArray _dst, const Size& _dsz, int borderT
                     if (ok >= 0)
                     {
                         CV_IMPL_ADD(CV_IMPL_IPP);
-                        return;
+                        return true;
                     }
-                    setIppErrorStatus();
                 }
             }
         }
     }
+#else
+    CV_UNUSED(_src); CV_UNUSED(_dst); CV_UNUSED(_dsz); CV_UNUSED(borderType);
 #endif
+    return false;
+}
+}
+#endif
+
+void cv::pyrDown( InputArray _src, OutputArray _dst, const Size& _dsz, int borderType )
+{
+    CV_Assert(borderType != BORDER_CONSTANT);
+
+    CV_OCL_RUN(_src.dims() <= 2 && _dst.isUMat(),
+               ocl_pyrDown(_src, _dst, _dsz, borderType))
+
+    Mat src = _src.getMat();
+    Size dsz = _dsz.area() == 0 ? Size((src.cols + 1)/2, (src.rows + 1)/2) : _dsz;
+    _dst.create( dsz, src.type() );
+    Mat dst = _dst.getMat();
+    int depth = src.depth();
+
+#ifdef HAVE_TEGRA_OPTIMIZATION
+    if(borderType == BORDER_DEFAULT && tegra::useTegra() && tegra::pyrDown(src, dst))
+        return;
+#endif
+
+#ifdef HAVE_IPP
+    bool isolated = (borderType & BORDER_ISOLATED) != 0;
+    int borderTypeNI = borderType & ~BORDER_ISOLATED;
+#endif
+    CV_IPP_RUN(borderTypeNI == BORDER_DEFAULT && (!_src.isSubmatrix() || isolated) && dsz == Size((_src.cols() + 1)/2, (_src.rows() + 1)/2),
+        ipp_pyrdown( _src,  _dst,  _dsz,  borderType));
+
+
+    PyrFunc func = 0;
+    if( depth == CV_8U )
+        func = pyrDown_<FixPtCast<uchar, 8>, PyrDownVec_32s8u>;
+    else if( depth == CV_16S )
+        func = pyrDown_<FixPtCast<short, 8>, PyrDownVec_32s16s >;
+    else if( depth == CV_16U )
+        func = pyrDown_<FixPtCast<ushort, 8>, PyrDownVec_32s16u >;
+    else if( depth == CV_32F )
+        func = pyrDown_<FltCast<float, 8>, PyrDownVec_32f>;
+    else if( depth == CV_64F )
+        func = pyrDown_<FltCast<double, 8>, PyrDownNoVec<double, double> >;
+    else
+        CV_Error( CV_StsUnsupportedFormat, "" );
+
+    func( src, dst, borderType );
+}
+
+
+#if defined(HAVE_IPP)
+namespace cv
+{
+static bool ipp_pyrup( InputArray _src, OutputArray _dst, const Size& _dsz, int borderType )
+{
+#if IPP_VERSION_X100 >= 801 && 0
+    Size sz = _src.dims() <= 2 ? _src.size() : Size();
+    Size dsz = _dsz.area() == 0 ? Size(_src.cols()*2, _src.rows()*2) : _dsz;
+
+    Mat src = _src.getMat();
+    _dst.create( dsz, src.type() );
+    Mat dst = _dst.getMat();
+    int depth = src.depth();
+
+    {
+        bool isolated = (borderType & BORDER_ISOLATED) != 0;
+        int borderTypeNI = borderType & ~BORDER_ISOLATED;
+        if (borderTypeNI == BORDER_DEFAULT && (!src.isSubmatrix() || isolated) && dsz == Size(src.cols*2, src.rows*2))
+        {
+            typedef IppStatus (CV_STDCALL * ippiPyrUp)(const void* pSrc, int srcStep, void* pDst, int dstStep, IppiSize srcRoi, Ipp8u* buffer);
+            int type = src.type();
+            CV_SUPPRESS_DEPRECATED_START
+            ippiPyrUp pyrUpFunc = type == CV_8UC1 ? (ippiPyrUp) ippiPyrUp_Gauss5x5_8u_C1R :
+                                  type == CV_8UC3 ? (ippiPyrUp) ippiPyrUp_Gauss5x5_8u_C3R :
+                                  type == CV_32FC1 ? (ippiPyrUp) ippiPyrUp_Gauss5x5_32f_C1R :
+                                  type == CV_32FC3 ? (ippiPyrUp) ippiPyrUp_Gauss5x5_32f_C3R : 0;
+            CV_SUPPRESS_DEPRECATED_END
+
+            if (pyrUpFunc)
+            {
+                int bufferSize;
+                IppiSize srcRoi = { src.cols, src.rows };
+                IppDataType dataType = depth == CV_8U ? ipp8u : ipp32f;
+                CV_SUPPRESS_DEPRECATED_START
+                IppStatus ok = ippiPyrUpGetBufSize_Gauss5x5(srcRoi.width, dataType, src.channels(), &bufferSize);
+                CV_SUPPRESS_DEPRECATED_END
+                if (ok >= 0)
+                {
+                    Ipp8u* buffer = ippsMalloc_8u(bufferSize);
+                    ok = pyrUpFunc(src.data, (int) src.step, dst.data, (int) dst.step, srcRoi, buffer);
+                    ippsFree(buffer);
+
+                    if (ok >= 0)
+                    {
+                        CV_IMPL_ADD(CV_IMPL_IPP);
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+#else
+    CV_UNUSED(_src); CV_UNUSED(_dst); CV_UNUSED(_dsz); CV_UNUSED(borderType);
+#endif
+    return false;
+}
+}
+#endif
+
+void cv::pyrUp( InputArray _src, OutputArray _dst, const Size& _dsz, int borderType )
+{
+    CV_Assert(borderType == BORDER_DEFAULT);
+
+    CV_OCL_RUN(_src.dims() <= 2 && _dst.isUMat(),
+               ocl_pyrUp(_src, _dst, _dsz, borderType))
+
+
+    Mat src = _src.getMat();
+    Size dsz = _dsz.area() == 0 ? Size(src.cols*2, src.rows*2) : _dsz;
+    _dst.create( dsz, src.type() );
+    Mat dst = _dst.getMat();
+    int depth = src.depth();
+
+#ifdef HAVE_TEGRA_OPTIMIZATION
+    if(borderType == BORDER_DEFAULT && tegra::useTegra() && tegra::pyrUp(src, dst))
+        return;
+#endif
+
+#ifdef HAVE_IPP
+    bool isolated = (borderType & BORDER_ISOLATED) != 0;
+    int borderTypeNI = borderType & ~BORDER_ISOLATED;
+#endif
+    CV_IPP_RUN(borderTypeNI == BORDER_DEFAULT && (!_src.isSubmatrix() || isolated) && dsz == Size(_src.cols()*2, _src.rows()*2),
+        ipp_pyrup( _src,  _dst,  _dsz,  borderType));
+
 
     PyrFunc func = 0;
     if( depth == CV_8U )
@@ -996,28 +1374,19 @@ void cv::pyrUp( InputArray _src, OutputArray _dst, const Size& _dsz, int borderT
     func( src, dst, borderType );
 }
 
-void cv::buildPyramid( InputArray _src, OutputArrayOfArrays _dst, int maxlevel, int borderType )
+
+#if 0 //#ifdef HAVE_IPP
+namespace cv
 {
-    CV_Assert(borderType != BORDER_CONSTANT);
-
-    if (_src.dims() <= 2 && _dst.isUMatVector())
-    {
-        UMat src = _src.getUMat();
-        _dst.create( maxlevel + 1, 1, 0 );
-        _dst.getUMatRef(0) = src;
-        for( int i = 1; i <= maxlevel; i++ )
-            pyrDown( _dst.getUMatRef(i-1), _dst.getUMatRef(i), Size(), borderType );
-        return;
-    }
-
+static bool ipp_buildpyramid( InputArray _src, OutputArrayOfArrays _dst, int maxlevel, int borderType )
+{
+#if IPP_VERSION_X100 >= 801 && 0
     Mat src = _src.getMat();
     _dst.create( maxlevel + 1, 1, 0 );
     _dst.getMatRef(0) = src;
 
     int i=1;
 
-#if IPP_VERSION_X100 >= 801 && 0
-    CV_IPP_CHECK()
     {
         bool isolated = (borderType & BORDER_ISOLATED) != 0;
         int borderTypeNI = borderType & ~BORDER_ISOLATED;
@@ -1090,8 +1459,8 @@ void cv::buildPyramid( InputArray _src, OutputArrayOfArrays _dst, int maxlevel, 
 
                         if (ok < 0)
                         {
-                            setIppErrorStatus();
-                            break;
+                            pyrFreeFunc(gPyr->pState);
+                            return false;
                         }
                         else
                         {
@@ -1101,13 +1470,52 @@ void cv::buildPyramid( InputArray _src, OutputArrayOfArrays _dst, int maxlevel, 
                     pyrFreeFunc(gPyr->pState);
                 }
                 else
-                    setIppErrorStatus();
-
+                {
+                    ippiPyramidFree(gPyr);
+                    return false;
+                }
                 ippiPyramidFree(gPyr);
             }
+            return true;
         }
+        return false;
     }
+#else
+    CV_UNUSED(_src); CV_UNUSED(_dst); CV_UNUSED(maxlevel); CV_UNUSED(borderType);
 #endif
+    return false;
+}
+}
+#endif
+
+void cv::buildPyramid( InputArray _src, OutputArrayOfArrays _dst, int maxlevel, int borderType )
+{
+    CV_Assert(borderType != BORDER_CONSTANT);
+
+    if (_src.dims() <= 2 && _dst.isUMatVector())
+    {
+        UMat src = _src.getUMat();
+        _dst.create( maxlevel + 1, 1, 0 );
+        _dst.getUMatRef(0) = src;
+        for( int i = 1; i <= maxlevel; i++ )
+            pyrDown( _dst.getUMatRef(i-1), _dst.getUMatRef(i), Size(), borderType );
+        return;
+    }
+
+    Mat src = _src.getMat();
+    _dst.create( maxlevel + 1, 1, 0 );
+    _dst.getMatRef(0) = src;
+
+    int i=1;
+
+#if (IPP_VERSION_X100 >= 801 && 0)
+    bool isolated = (borderType & BORDER_ISOLATED) != 0;
+    int borderTypeNI = borderType & ~BORDER_ISOLATED;
+    CV_IPP_RUN(((IPP_VERSION_X100 >= 801 && 0) && (borderTypeNI == BORDER_DEFAULT && (!_src.isSubmatrix() || isolated))),
+        ipp_buildpyramid( _src,  _dst,  maxlevel,  borderType));
+#endif
+
+
     for( ; i <= maxlevel; i++ )
         pyrDown( _dst.getMatRef(i-1), _dst.getMatRef(i), Size(), borderType );
 }

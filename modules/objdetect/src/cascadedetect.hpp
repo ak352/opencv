@@ -1,7 +1,12 @@
 #pragma once
 
+#include "opencv2/core/ocl.hpp"
+
 namespace cv
 {
+
+void clipObjects(Size sz, std::vector<Rect>& objects,
+                 std::vector<int>* a, std::vector<double>* b);
 
 class FeatureEvaluator
 {

@@ -1136,10 +1136,11 @@ private:
     Scalar borderValue;
 };
 
-#if IPP_VERSION_X100 >= 801
-static bool IPPMorphReplicate(int op, const Mat &src, Mat &dst, const Mat &kernel,
+#ifdef HAVE_IPP
+static bool ipp_MorphReplicate(int op, const Mat &src, Mat &dst, const Mat &kernel,
                               const Size& ksize, const Point &anchor, bool rectKernel)
 {
+#if IPP_VERSION_X100 >= 801
     int type = src.type();
     const Mat* _src = &src;
     Mat temp;
@@ -1257,10 +1258,13 @@ static bool IPPMorphReplicate(int op, const Mat &src, Mat &dst, const Mat &kerne
         }
         #undef IPP_MORPH_CASE
     }
+#else
+    CV_UNUSED(op); CV_UNUSED(src); CV_UNUSED(dst); CV_UNUSED(kernel); CV_UNUSED(ksize); CV_UNUSED(anchor); CV_UNUSED(rectKernel);
+#endif
     return false;
 }
 
-static bool IPPMorphOp(int op, InputArray _src, OutputArray _dst,
+static bool ipp_MorphOp(int op, InputArray _src, OutputArray _dst,
     const Mat& _kernel, Point anchor, int iterations,
     int borderType, const Scalar &borderValue)
 {
@@ -1331,7 +1335,7 @@ static bool IPPMorphOp(int op, InputArray _src, OutputArray _dst,
     if( iterations > 1 )
         return false;
 
-    return IPPMorphReplicate( op, src, dst, kernel, ksize, anchor, rectKernel );
+    return ipp_MorphReplicate( op, src, dst, kernel, ksize, anchor, rectKernel );
 }
 #endif
 
@@ -1548,7 +1552,7 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
         return true;
     }
 
-#if defined ANDROID
+#ifdef ANDROID
     size_t localThreads[2] = { 16, 8 };
 #else
     size_t localThreads[2] = { 16, 16 };
@@ -1562,6 +1566,11 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
 
     if (localThreads[0]*localThreads[1] * 2 < (localThreads[0] + ksize.width - 1) * (localThreads[1] + ksize.height - 1))
         return false;
+
+#ifdef ANDROID
+    if (dev.isNVidia())
+        return false;
+#endif
 
     // build processing
     String processing;
@@ -1706,16 +1715,7 @@ static void morphOp( int op, InputArray _src, OutputArray _dst,
         iterations = 1;
     }
 
-#if IPP_VERSION_X100 >= 801
-    CV_IPP_CHECK()
-    {
-        if( IPPMorphOp(op, _src, _dst, kernel, anchor, iterations, borderType, borderValue) )
-        {
-            CV_IMPL_ADD(CV_IMPL_IPP);
-            return;
-        }
-    }
-#endif
+    CV_IPP_RUN(IPP_VERSION_X100 >= 801, ipp_MorphOp(op, _src, _dst, kernel, anchor, iterations, borderType, borderValue))
 
     Mat src = _src.getMat();
     _dst.create( src.size(), src.type() );
@@ -1815,9 +1815,14 @@ static bool ocl_morphologyEx(InputArray _src, OutputArray _dst, int op,
 #endif
 
 void cv::morphologyEx( InputArray _src, OutputArray _dst, int op,
-                       InputArray kernel, Point anchor, int iterations,
+                       InputArray _kernel, Point anchor, int iterations,
                        int borderType, const Scalar& borderValue )
 {
+    Mat kernel = _kernel.getMat();
+    if (kernel.empty())
+    {
+        kernel = getStructuringElement(MORPH_RECT, Size(3,3), Point(1,1));
+    }
 #ifdef HAVE_OPENCL
     Size ksize = kernel.size();
     anchor = normalizeAnchor(anchor, ksize);

@@ -58,7 +58,7 @@ static void calcSharrDeriv(const cv::Mat& src, cv::Mat& dst)
     dst.create(rows, cols, CV_MAKETYPE(DataType<deriv_type>::depth, cn*2));
 
 #ifdef HAVE_TEGRA_OPTIMIZATION
-    if (tegra::calcSharrDeriv(src, dst))
+    if (tegra::useTegra() && tegra::calcSharrDeriv(src, dst))
         return;
 #endif
 
@@ -1009,7 +1009,7 @@ namespace cv
             idxArg = kernel.set(idxArg, (int)winSize.height); // int c_winSize_y
             idxArg = kernel.set(idxArg, (int)iters); // int c_iters
             idxArg = kernel.set(idxArg, (char)calcErr); //char calcErr
-            return kernel.run(2, globalThreads, localThreads, false);
+            return kernel.run(2, globalThreads, localThreads, true); // sync=true because ocl::Image2D lifetime is not handled well for temp UMat
         }
     private:
         inline static bool isDeviceCPU()

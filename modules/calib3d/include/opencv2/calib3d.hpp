@@ -99,7 +99,7 @@ v = f_y*y' + c_y
 Real lenses usually have some distortion, mostly radial distortion and slight tangential distortion.
 So, the above model is extended as:
 
-\f[\begin{array}{l} \vecthree{x}{y}{z} = R  \vecthree{X}{Y}{Z} + t \\ x' = x/z \\ y' = y/z \\ x'' = x'  \frac{1 + k_1 r^2 + k_2 r^4 + k_3 r^6}{1 + k_4 r^2 + k_5 r^4 + k_6 r^6} + 2 p_1 x' y' + p_2(r^2 + 2 x'^2) + s_1 r^2 + s_2 r^4 \\ y'' = y'  \frac{1 + k_1 r^2 + k_2 r^4 + k_3 r^6}{1 + k_4 r^2 + k_5 r^4 + k_6 r^6} + p_1 (r^2 + 2 y'^2) + 2 p_2 x' y' + s_1 r^2 + s_2 r^4 \\ \text{where} \quad r^2 = x'^2 + y'^2  \\ u = f_x*x'' + c_x \\ v = f_y*y'' + c_y \end{array}\f]
+\f[\begin{array}{l} \vecthree{x}{y}{z} = R  \vecthree{X}{Y}{Z} + t \\ x' = x/z \\ y' = y/z \\ x'' = x'  \frac{1 + k_1 r^2 + k_2 r^4 + k_3 r^6}{1 + k_4 r^2 + k_5 r^4 + k_6 r^6} + 2 p_1 x' y' + p_2(r^2 + 2 x'^2) + s_1 r^2 + s_2 r^4 \\ y'' = y'  \frac{1 + k_1 r^2 + k_2 r^4 + k_3 r^6}{1 + k_4 r^2 + k_5 r^4 + k_6 r^6} + p_1 (r^2 + 2 y'^2) + 2 p_2 x' y' + s_3 r^2 + s_4 r^4 \\ \text{where} \quad r^2 = x'^2 + y'^2  \\ u = f_x*x'' + c_x \\ v = f_y*y'' + c_y \end{array}\f]
 
 \f$k_1\f$, \f$k_2\f$, \f$k_3\f$, \f$k_4\f$, \f$k_5\f$, and \f$k_6\f$ are radial distortion coefficients. \f$p_1\f$ and \f$p_2\f$ are
 tangential distortion coefficients. \f$s_1\f$, \f$s_2\f$, \f$s_3\f$, and \f$s_4\f$, are the thin prism distortion
@@ -166,7 +166,7 @@ pattern (every view is described by several 3D-2D point correspondences).
 
     \f[x' = (\theta_d / r) x \\ y' = (\theta_d / r) y \f]
 
-    Finally, convertion into pixel coordinates: The final pixel coordinates vector [u; v] where:
+    Finally, conversion into pixel coordinates: The final pixel coordinates vector [u; v] where:
 
     \f[u = f_x (x' + \alpha y') + c_x \\
     v = f_y yy + c_y\f]
@@ -184,7 +184,8 @@ namespace cv
 
 //! type of the robust estimation algorithm
 enum { LMEDS  = 4, //!< least-median algorithm
-       RANSAC = 8  //!< RANSAC algorithm
+       RANSAC = 8, //!< RANSAC algorithm
+       RHO    = 16 //!< RHO algorithm
      };
 
 enum { SOLVEPNP_ITERATIVE = 0,
@@ -265,8 +266,9 @@ a vector\<Point2f\> .
 -   **0** - a regular method using all the points
 -   **RANSAC** - RANSAC-based robust method
 -   **LMEDS** - Least-Median robust method
+-   **RHO**    - PROSAC-based robust method
 @param ransacReprojThreshold Maximum allowed reprojection error to treat a point pair as an inlier
-(used in the RANSAC method only). That is, if
+(used in the RANSAC and RHO methods only). That is, if
 \f[\| \texttt{dstPoints} _i -  \texttt{convertPointsHomogeneous} ( \texttt{H} * \texttt{srcPoints} _i) \|  >  \texttt{ransacReprojThreshold}\f]
 then the point \f$i\f$ is considered an outlier. If srcPoints and dstPoints are measured in pixels,
 it usually makes sense to set this parameter somewhere in the range of 1 to 10.
@@ -289,7 +291,7 @@ pairs to compute an initial homography estimate with a simple least-squares sche
 
 However, if not all of the point pairs ( \f$srcPoints_i\f$, \f$dstPoints_i\f$ ) fit the rigid perspective
 transformation (that is, there are some outliers), this initial estimate will be poor. In this case,
-you can use one of the two robust methods. Both methods, RANSAC and LMeDS , try many different
+you can use one of the three robust methods. The methods RANSAC, LMeDS and RHO try many different
 random subsets of the corresponding point pairs (of four pairs each), estimate the homography matrix
 using this subset and a simple least-square algorithm, and then compute the quality/goodness of the
 computed homography (which is the number of inliers for RANSAC or the median re-projection error for
@@ -300,7 +302,7 @@ Regardless of the method, robust or not, the computed homography matrix is refin
 inliers only in case of a robust method) with the Levenberg-Marquardt method to reduce the
 re-projection error even more.
 
-The method RANSAC can handle practically any ratio of outliers but it needs a threshold to
+The methods RANSAC and RHO can handle practically any ratio of outliers but need a threshold to
 distinguish inliers from outliers. The method LMeDS does not need any threshold but it works
 correctly only when there are more than 50% of inliers. Finally, if there are no outliers and the
 noise is rather small, use the default method (method=0).
@@ -442,7 +444,7 @@ vector\<Point3f\> ), where N is the number of points in the view.
 @param cameraMatrix Camera matrix \f$A = \vecthreethree{f_x}{0}{c_x}{0}{f_y}{c_y}{0}{0}{_1}\f$ .
 @param distCoeffs Input vector of distortion coefficients
 \f$(k_1, k_2, p_1, p_2[, k_3[, k_4, k_5, k_6],[s_1, s_2, s_3, s_4]])\f$ of 4, 5, 8 or 12 elements. If
-the vector is NULL/empty, the zero distortion coefficients are assumed.
+the vector is empty, the zero distortion coefficients are assumed.
 @param imagePoints Output array of image points, 2xN/Nx2 1-channel or 1xN/Nx1 2-channel, or
 vector\<Point2f\> .
 @param jacobian Optional output 2Nx(10+\<numDistCoeffs\>) jacobian matrix of derivatives of image
@@ -512,6 +514,16 @@ projections, as well as the camera matrix and the distortion coefficients.
 @note
    -   An example of how to use solvePnP for planar augmented reality can be found at
         opencv_source_code/samples/python2/plane_ar.py
+   -   If you are using Python:
+        - Numpy array slices won't work as input because solvePnP requires contiguous
+        arrays (enforced by the assertion using cv::Mat::checkVector() around line 55 of
+        modules/calib3d/src/solvepnp.cpp version 2.4.9)
+        - The P3P algorithm requires image points to be in an array of shape (N,1,2) due
+        to its calling of cv::undistortPoints (around line 75 of modules/calib3d/src/solvepnp.cpp version 2.4.9)
+        which requires 2-channel information.
+        - Thus, given some data D = np.array(...) where D.shape = (N,M), in order to use a subset of
+        it as, e.g., imagePoints, one must effectively copy it into a new array: imagePoints =
+        np.ascontiguousarray(D[:,:2]).reshape((N,1,2))
  */
 CV_EXPORTS_W bool solvePnP( InputArray objectPoints, InputArray imagePoints,
                             InputArray cameraMatrix, InputArray distCoeffs,
@@ -685,19 +697,19 @@ CV_EXPORTS_W bool findCirclesGrid( InputArray image, Size patternSize,
 
 /** @brief Finds the camera intrinsic and extrinsic parameters from several views of a calibration pattern.
 
-@param objectPoints In the new interface it is a vector of vectors of calibration pattern points
-in the calibration pattern coordinate space. The outer vector contains as many elements as the
-number of the pattern views. If the same calibration pattern is shown in each view and it is fully
-visible, all the vectors will be the same. Although, it is possible to use partially occluded
-patterns, or even different patterns in different views. Then, the vectors will be different. The
-points are 3D, but since they are in a pattern coordinate system, then, if the rig is planar, it
-may make sense to put the model to a XY coordinate plane so that Z-coordinate of each input object
-point is 0.
+@param objectPoints In the new interface it is a vector of vectors of calibration pattern points in
+the calibration pattern coordinate space (e.g. std::vector<std::vector<cv::Vec3f>>). The outer
+vector contains as many elements as the number of the pattern views. If the same calibration pattern
+is shown in each view and it is fully visible, all the vectors will be the same. Although, it is
+possible to use partially occluded patterns, or even different patterns in different views. Then,
+the vectors will be different. The points are 3D, but since they are in a pattern coordinate system,
+then, if the rig is planar, it may make sense to put the model to a XY coordinate plane so that
+Z-coordinate of each input object point is 0.
 In the old interface all the vectors of object points from different views are concatenated
 together.
-@param imagePoints In the new interface it is a vector of vectors of the projections of
-calibration pattern points. imagePoints.size() and objectPoints.size() and imagePoints[i].size()
-must be equal to objectPoints[i].size() for each i.
+@param imagePoints In the new interface it is a vector of vectors of the projections of calibration
+pattern points (e.g. std::vector<std::vector<cv::Vec2f>>). imagePoints.size() and
+objectPoints.size() and imagePoints[i].size() must be equal to objectPoints[i].size() for each i.
 In the old interface all the vectors of object points from different views are concatenated
 together.
 @param imageSize Size of the image used only to initialize the intrinsic camera matrix.
@@ -707,11 +719,11 @@ and/or CV_CALIB_FIX_ASPECT_RATIO are specified, some or all of fx, fy, cx, cy mu
 initialized before calling the function.
 @param distCoeffs Output vector of distortion coefficients
 \f$(k_1, k_2, p_1, p_2[, k_3[, k_4, k_5, k_6],[s_1, s_2, s_3, s_4]])\f$ of 4, 5, 8 or 12 elements.
-@param rvecs Output vector of rotation vectors (see Rodrigues ) estimated for each pattern view.
-That is, each k-th rotation vector together with the corresponding k-th translation vector (see
-the next output parameter description) brings the calibration pattern from the model coordinate
-space (in which object points are specified) to the world coordinate space, that is, a real
-position of the calibration pattern in the k-th pattern view (k=0.. *M* -1).
+@param rvecs Output vector of rotation vectors (see Rodrigues ) estimated for each pattern view
+(e.g. std::vector<cv::Mat>>). That is, each k-th rotation vector together with the corresponding
+k-th translation vector (see the next output parameter description) brings the calibration pattern
+from the model coordinate space (in which object points are specified) to the world coordinate
+space, that is, a real position of the calibration pattern in the k-th pattern view (k=0.. *M* -1).
 @param tvecs Output vector of translation vectors estimated for each pattern view.
 @param flags Different flags that may be zero or a combination of the following values:
 -   **CV_CALIB_USE_INTRINSIC_GUESS** cameraMatrix contains valid initial values of
@@ -1175,7 +1187,7 @@ are feature points from cameras with same focal length and principle point.
 @param pp principle point of the camera.
 @param method Method for computing a fundamental matrix.
 -   **RANSAC** for the RANSAC algorithm.
--   **MEDS** for the LMedS algorithm.
+-   **LMEDS** for the LMedS algorithm.
 @param threshold Parameter used for RANSAC. It is the maximum distance from a point to an epipolar
 line in pixels, beyond which the point is considered an outlier and is not used for computing the
 final fundamental matrix. It can be set to something like 1-3, depending on the accuracy of the
@@ -1188,7 +1200,7 @@ for the other points. The array is computed only in the RANSAC and LMedS methods
 This function estimates essential matrix based on the five-point algorithm solver in @cite Nister03 .
 @cite SteweniusCFS is also a related. The epipolar geometry is described by the following equation:
 
-\f[[p_2; 1]^T K^T E K [p_1; 1] = 0 \\\f]\f[K =
+\f[[p_2; 1]^T K^{-T} E K^{-1} [p_1; 1] = 0 \\\f]\f[K =
 \begin{bmatrix}
 f & 0 & x_{pp}  \\
 0 & f & y_{pp}  \\
@@ -1543,7 +1555,8 @@ public:
     enum
     {
         MODE_SGBM = 0,
-        MODE_HH   = 1
+        MODE_HH   = 1,
+        MODE_SGBM_3WAY = 2
     };
 
     CV_WRAP virtual int getPreFilterCap() const = 0;
@@ -1651,7 +1664,7 @@ namespace fisheye
         InputArray K, InputArray D, double alpha = 0, OutputArray jacobian = noArray());
 
     /** @overload */
-    CV_EXPORTS void projectPoints(InputArray objectPoints, OutputArray imagePoints, InputArray rvec, InputArray tvec,
+    CV_EXPORTS_W void projectPoints(InputArray objectPoints, OutputArray imagePoints, InputArray rvec, InputArray tvec,
         InputArray K, InputArray D, double alpha = 0, OutputArray jacobian = noArray());
 
     /** @brief Distorts 2D points using fisheye model.
@@ -1663,7 +1676,7 @@ namespace fisheye
     @param alpha The skew coefficient.
     @param distorted Output array of image points, 1xN/Nx1 2-channel, or vector\<Point2f\> .
      */
-    CV_EXPORTS void distortPoints(InputArray undistorted, OutputArray distorted, InputArray K, InputArray D, double alpha = 0);
+    CV_EXPORTS_W void distortPoints(InputArray undistorted, OutputArray distorted, InputArray K, InputArray D, double alpha = 0);
 
     /** @brief Undistorts 2D points using fisheye model
 
@@ -1676,7 +1689,7 @@ namespace fisheye
     @param P New camera matrix (3x3) or new projection matrix (3x4)
     @param undistorted Output array of image points, 1xN/Nx1 2-channel, or vector\<Point2f\> .
      */
-    CV_EXPORTS void undistortPoints(InputArray distorted, OutputArray undistorted,
+    CV_EXPORTS_W void undistortPoints(InputArray distorted, OutputArray undistorted,
         InputArray K, InputArray D, InputArray R = noArray(), InputArray P  = noArray());
 
     /** @brief Computes undistortion and rectification maps for image transform by cv::remap(). If D is empty zero
@@ -1693,7 +1706,7 @@ namespace fisheye
     @param map1 The first output map.
     @param map2 The second output map.
      */
-    CV_EXPORTS void initUndistortRectifyMap(InputArray K, InputArray D, InputArray R, InputArray P,
+    CV_EXPORTS_W void initUndistortRectifyMap(InputArray K, InputArray D, InputArray R, InputArray P,
         const cv::Size& size, int m1type, OutputArray map1, OutputArray map2);
 
     /** @brief Transforms an image to compensate for fisheye lens distortion.
@@ -1724,7 +1737,7 @@ namespace fisheye
 
     ![image](pics/fisheye_undistorted.jpg)
      */
-    CV_EXPORTS void undistortImage(InputArray distorted, OutputArray undistorted,
+    CV_EXPORTS_W void undistortImage(InputArray distorted, OutputArray undistorted,
         InputArray K, InputArray D, InputArray Knew = cv::noArray(), const Size& new_size = Size());
 
     /** @brief Estimates new camera matrix for undistortion or rectification.
@@ -1740,7 +1753,7 @@ namespace fisheye
     @param new_size
     @param fov_scale Divisor for new focal length.
      */
-    CV_EXPORTS void estimateNewCameraMatrixForUndistortRectify(InputArray K, InputArray D, const Size &image_size, InputArray R,
+    CV_EXPORTS_W void estimateNewCameraMatrixForUndistortRectify(InputArray K, InputArray D, const Size &image_size, InputArray R,
         OutputArray P, double balance = 0.0, const Size& new_size = Size(), double fov_scale = 1.0);
 
     /** @brief Performs camera calibaration
@@ -1774,7 +1787,7 @@ namespace fisheye
     zero.
     @param criteria Termination criteria for the iterative optimization algorithm.
      */
-    CV_EXPORTS double calibrate(InputArrayOfArrays objectPoints, InputArrayOfArrays imagePoints, const Size& image_size,
+    CV_EXPORTS_W double calibrate(InputArrayOfArrays objectPoints, InputArrayOfArrays imagePoints, const Size& image_size,
         InputOutputArray K, InputOutputArray D, OutputArrayOfArrays rvecs, OutputArrayOfArrays tvecs, int flags = 0,
             TermCriteria criteria = TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 100, DBL_EPSILON));
 
@@ -1808,7 +1821,7 @@ namespace fisheye
     length. Balance is in range of [0, 1].
     @param fov_scale Divisor for new focal length.
      */
-    CV_EXPORTS void stereoRectify(InputArray K1, InputArray D1, InputArray K2, InputArray D2, const Size &imageSize, InputArray R, InputArray tvec,
+    CV_EXPORTS_W void stereoRectify(InputArray K1, InputArray D1, InputArray K2, InputArray D2, const Size &imageSize, InputArray R, InputArray tvec,
         OutputArray R1, OutputArray R2, OutputArray P1, OutputArray P2, OutputArray Q, int flags, const Size &newImageSize = Size(),
         double balance = 0.0, double fov_scale = 1.0);
 
@@ -1844,9 +1857,9 @@ namespace fisheye
     zero.
     @param criteria Termination criteria for the iterative optimization algorithm.
      */
-    CV_EXPORTS double stereoCalibrate(InputArrayOfArrays objectPoints, InputArrayOfArrays imagePoints1, InputArrayOfArrays imagePoints2,
+    CV_EXPORTS_W double stereoCalibrate(InputArrayOfArrays objectPoints, InputArrayOfArrays imagePoints1, InputArrayOfArrays imagePoints2,
                                   InputOutputArray K1, InputOutputArray D1, InputOutputArray K2, InputOutputArray D2, Size imageSize,
-                                  OutputArray R, OutputArray T, int flags = CALIB_FIX_INTRINSIC,
+                                  OutputArray R, OutputArray T, int flags = fisheye::CALIB_FIX_INTRINSIC,
                                   TermCriteria criteria = TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 100, DBL_EPSILON));
 
 //! @} calib3d_fisheye

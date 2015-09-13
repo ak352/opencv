@@ -985,8 +985,8 @@ public:
 
     @param _image A grayscale (CV_8UC1) input image. If only a roi needs to be selected, use:
     `lsd_ptr-\>detect(image(roi), lines, ...); lines += Scalar(roi.x, roi.y, roi.x, roi.y);`
-    @param _lines A vector of Vec4i elements specifying the beginning and ending point of a line. Where
-    Vec4i is (x1, y1, x2, y2), point 1 is the start, point 2 - end. Returned lines are strictly
+    @param _lines A vector of Vec4i or Vec4f elements specifying the beginning and ending point of a line. Where
+    Vec4i/Vec4f is (x1, y1, x2, y2), point 1 is the start, point 2 - end. Returned lines are strictly
     oriented depending on the gradient.
     @param width Vector of widths of the regions, where the lines are found. E.g. Width of line.
     @param prec Vector of precisions with which the lines are found.
@@ -1051,7 +1051,7 @@ CV_EXPORTS_W Ptr<LineSegmentDetector> createLineSegmentDetector(
 The function computes and returns the \f$\texttt{ksize} \times 1\f$ matrix of Gaussian filter
 coefficients:
 
-\f[G_i= \alpha *e^{-(i-( \texttt{ksize} -1)/2)^2/(2* \texttt{sigma} )^2},\f]
+\f[G_i= \alpha *e^{-(i-( \texttt{ksize} -1)/2)^2/(2* \texttt{sigma}^2)},\f]
 
 where \f$i=0..\texttt{ksize}-1\f$ and \f$\alpha\f$ is the scale factor chosen so that \f$\sum_i G_i=1\f$.
 
@@ -1221,7 +1221,22 @@ CV_EXPORTS_W void boxFilter( InputArray src, OutputArray dst, int ddepth,
                              bool normalize = true,
                              int borderType = BORDER_DEFAULT );
 
-/** @todo document
+/** @brief Calculates the normalized sum of squares of the pixel values overlapping the filter.
+
+For every pixel \f$ (x, y) \f$ in the source image, the function calculates the sum of squares of those neighboring
+pixel values which overlap the filter placed over the pixel \f$ (x, y) \f$.
+
+The unnormalized square box filter can be useful in computing local image statistics such as the the local
+variance and standard deviation around the neighborhood of a pixel.
+
+@param _src input image
+@param _dst output image of the same size and type as _src
+@param ddepth the output image depth (-1 to use src.depth())
+@param ksize kernel size
+@param anchor kernel anchor point. The default value of Point(-1, -1) denotes that the anchor is at the kernel
+center.
+@param normalize flag, specifying whether the kernel is to be normalized by it's area or not.
+@param borderType border mode used to extrapolate pixels outside of the image, see cv::BorderTypes
 @sa boxFilter
 */
 CV_EXPORTS_W void sqrBoxFilter( InputArray _src, OutputArray _dst, int ddepth,
@@ -1353,6 +1368,28 @@ CV_EXPORTS_W void Sobel( InputArray src, OutputArray dst, int ddepth,
                          int dx, int dy, int ksize = 3,
                          double scale = 1, double delta = 0,
                          int borderType = BORDER_DEFAULT );
+
+/** @brief Calculates the first order image derivative in both x and y using a Sobel operator
+
+Equivalent to calling:
+
+@code
+Sobel( src, dx, CV_16SC1, 1, 0, 3 );
+Sobel( src, dy, CV_16SC1, 0, 1, 3 );
+@endcode
+
+@param src input image.
+@param dx output image with first-order derivative in x.
+@param dy output image with first-order derivative in y.
+@param ksize size of Sobel kernel. It must be 3.
+@param borderType pixel extrapolation method, see cv::BorderTypes
+
+@sa Sobel
+ */
+
+CV_EXPORTS_W void spatialGradient( InputArray src, OutputArray dx,
+                                   OutputArray dy, int ksize = 3,
+                                   int borderType = BORDER_DEFAULT );
 
 /** @brief Calculates the first x- or y- image derivative using Scharr operator.
 
@@ -1674,6 +1711,7 @@ See the line detection example below:
     #include <opencv2/highgui.hpp>
 
     using namespace cv;
+    using namespace std;
 
     int main(int argc, char** argv)
     {
@@ -1759,18 +1797,19 @@ Example: :
     #include <math.h>
 
     using namespace cv;
+    using namespace std;
 
     int main(int argc, char** argv)
     {
         Mat img, gray;
-        if( argc != 2 && !(img=imread(argv[1], 1)).data)
+        if( argc != 2 || !(img=imread(argv[1], 1)).data)
             return -1;
         cvtColor(img, gray, COLOR_BGR2GRAY);
         // smooth it, otherwise a lot of false circles may be detected
         GaussianBlur( gray, gray, Size(9, 9), 2, 2 );
         vector<Vec3f> circles;
         HoughCircles(gray, circles, HOUGH_GRADIENT,
-                     2, gray->rows/4, 200, 100 );
+                     2, gray.rows/4, 200, 100 );
         for( size_t i = 0; i < circles.size(); i++ )
         {
              Point center(cvRound(circles[i][0]), cvRound(circles[i][1]));
@@ -1782,6 +1821,8 @@ Example: :
         }
         namedWindow( "circles", 1 );
         imshow( "circles", img );
+
+        waitKey(0);
         return 0;
     }
 @endcode
@@ -1927,8 +1968,8 @@ way:
     // specify fx and fy and let the function compute the destination image size.
     resize(src, dst, Size(), 0.5, 0.5, interpolation);
 @endcode
-To shrink an image, it will generally look best with CV_INTER_AREA interpolation, whereas to
-enlarge an image, it will generally look best with CV_INTER_CUBIC (slow) or CV_INTER_LINEAR
+To shrink an image, it will generally look best with cv::INTER_AREA interpolation, whereas to
+enlarge an image, it will generally look best with cv::INTER_CUBIC (slow) or cv::INTER_LINEAR
 (faster but still looks OK).
 
 @param src input image.
@@ -3332,9 +3373,11 @@ data type.
 @param result Map of comparison results. It must be single-channel 32-bit floating-point. If image
 is \f$W \times H\f$ and templ is \f$w \times h\f$ , then result is \f$(W-w+1) \times (H-h+1)\f$ .
 @param method Parameter specifying the comparison method, see cv::TemplateMatchModes
+@param mask Mask of searched template. It must have the same datatype and size with templ. It is
+not set by default.
  */
 CV_EXPORTS_W void matchTemplate( InputArray image, InputArray templ,
-                                 OutputArray result, int method );
+                                 OutputArray result, int method, InputArray mask = noArray() );
 
 //! @}
 
@@ -3477,7 +3520,7 @@ CV_EXPORTS_W double contourArea( InputArray contour, bool oriented = false );
 
 The function calculates and returns the minimum-area bounding rectangle (possibly rotated) for a
 specified point set. See the OpenCV sample minarea.cpp . Developer should keep in mind that the
-returned rotatedRect can contain negative indices when data is close the the containing Mat element
+returned rotatedRect can contain negative indices when data is close to the containing Mat element
 boundary.
 
 @param points Input vector of 2D points, stored in std::vector\<\> or Mat
@@ -3611,7 +3654,7 @@ CV_EXPORTS_W float intersectConvexConvex( InputArray _p1, InputArray _p2,
 /** @brief Fits an ellipse around a set of 2D points.
 
 The function calculates the ellipse that fits (in a least-squares sense) a set of 2D points best of
-all. It returns the rotated rectangle in which the ellipse is inscribed. The algorithm @cite Fitzgibbon95
+all. It returns the rotated rectangle in which the ellipse is inscribed. The first algorithm described by @cite Fitzgibbon95
 is used. Developer should keep in mind that it is possible that the returned
 ellipse/rotatedRect data contains negative indices, due to the data points being close to the
 border of the containing Mat element.
@@ -3724,7 +3767,8 @@ enum ColormapTypes
     COLORMAP_COOL = 8, //!< ![cool](pics/colormaps/colorscale_cool.jpg)
     COLORMAP_HSV = 9, //!< ![HSV](pics/colormaps/colorscale_hsv.jpg)
     COLORMAP_PINK = 10, //!< ![pink](pics/colormaps/colorscale_pink.jpg)
-    COLORMAP_HOT = 11 //!< ![hot](pics/colormaps/colorscale_hot.jpg)
+    COLORMAP_HOT = 11, //!< ![hot](pics/colormaps/colorscale_hot.jpg)
+    COLORMAP_PARULA = 12 //!< ![parula](pics/colormaps/colorscale_parula.jpg)
 };
 
 /** @brief Applies a GNU Octave/MATLAB equivalent colormap on a given image.

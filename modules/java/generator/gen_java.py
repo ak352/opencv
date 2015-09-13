@@ -13,8 +13,6 @@ else:
 class_ignore_list = (
     #core
     "FileNode", "FileStorage", "KDTree", "KeyPoint", "DMatch",
-    #videoio
-    "VideoWriter",
 )
 
 const_ignore_list = (
@@ -75,7 +73,7 @@ const_ignore_list = (
     "CV_CAP_PROP_CONVERT_RGB",
     "CV_CAP_PROP_WHITE_BALANCE_BLUE_U",
     "CV_CAP_PROP_RECTIFICATION",
-    "CV_CAP_PROP_MONOCROME",
+    "CV_CAP_PROP_MONOCHROME",
     "CV_CAP_PROP_SHARPNESS",
     "CV_CAP_PROP_AUTO_EXPOSURE",
     "CV_CAP_PROP_GAMMA",
@@ -186,6 +184,7 @@ type_dict = {
     "env"     : { "j_type" : "", "jn_type" : "", "jni_type" : "JNIEnv*"},
     "cls"     : { "j_type" : "", "jn_type" : "", "jni_type" : "jclass"},
     "bool"    : { "j_type" : "boolean", "jn_type" : "boolean", "jni_type" : "jboolean", "suffix" : "Z" },
+    "char"    : { "j_type" : "char", "jn_type" : "char", "jni_type" : "jchar", "suffix" : "C" },
     "int"     : { "j_type" : "int", "jn_type" : "int", "jni_type" : "jint", "suffix" : "I" },
     "long"    : { "j_type" : "int", "jn_type" : "int", "jni_type" : "jint", "suffix" : "I" },
     "float"   : { "j_type" : "float", "jn_type" : "float", "jni_type" : "jfloat", "suffix" : "F" },
@@ -507,55 +506,6 @@ JNIEXPORT jdoubleArray JNICALL Java_org_opencv_core_Core_n_1minMaxLocManual
         "moveWindow"        : {'j_code' : '', 'jn_code' : '', 'cpp_code' : '' },
         "resizeWindow"      : {'j_code' : '', 'jn_code' : '', 'cpp_code' : '' },
     }, # Highgui
-
-    'VideoCapture' :
-    {
-        "getSupportedPreviewSizes" :
-        {
-            'j_code' :
-"""
-    public java.util.List<org.opencv.core.Size> getSupportedPreviewSizes()
-    {
-        String[] sizes_str = getSupportedPreviewSizes_0(nativeObj).split(",");
-        java.util.List<org.opencv.core.Size> sizes = new java.util.ArrayList<org.opencv.core.Size>(sizes_str.length);
-
-        for (String str : sizes_str) {
-            String[] wh = str.split("x");
-            sizes.add(new org.opencv.core.Size(Double.parseDouble(wh[0]), Double.parseDouble(wh[1])));
-        }
-
-        return sizes;
-    }
-
-""",
-            'jn_code' :
-"""\n    private static native String getSupportedPreviewSizes_0(long nativeObj);\n""",
-            'cpp_code' :
-"""
-JNIEXPORT jstring JNICALL Java_org_opencv_videoio_VideoCapture_getSupportedPreviewSizes_10
-  (JNIEnv *env, jclass, jlong self);
-
-JNIEXPORT jstring JNICALL Java_org_opencv_videoio_VideoCapture_getSupportedPreviewSizes_10
-  (JNIEnv *env, jclass, jlong self)
-{
-    static const char method_name[] = "videoio::VideoCapture_getSupportedPreviewSizes_10()";
-    try {
-        LOGD("%s", method_name);
-        VideoCapture* me = (VideoCapture*) self; //TODO: check for NULL
-        union {double prop; const char* name;} u;
-        u.prop = me->get(CAP_PROP_ANDROID_PREVIEW_SIZES_STRING);
-        return env->NewStringUTF(u.name);
-    } catch(const std::exception &e) {
-        throwJavaException(env, &e, method_name);
-    } catch (...) {
-        throwJavaException(env, 0, method_name);
-    }
-    return env->NewStringUTF("");
-}
-
-""",
-        }, # getSupportedPreviewSizes
-    }, # VideoCapture
 }
 
 # { class : { func : { arg_name : {"ctype" : ctype, "attrib" : [attrib]} } } }
@@ -713,6 +663,8 @@ T_CPP_MODULE = """
 #include <string>
 
 #include "opencv2/$m.hpp"
+
+$includes
 
 using namespace cv;
 
@@ -971,6 +923,10 @@ class FuncInfo(GeneralInfo):
     def __repr__(self):
         return Template("FUNC <$ctype $namespace.$classpath.$name $args>").substitute(**self.__dict__)
 
+    def __lt__(self, other):
+        return self.__repr__() < other.__repr__()
+
+
 class JavaWrapperGenerator(object):
     def __init__(self):
         self.clear()
@@ -1081,11 +1037,14 @@ class JavaWrapperGenerator(object):
         self.add_class( ['class ' + self.Module, '', [], []] ) # [ 'class/struct cname', ':bases', [modlist] [props] ]
 
         # scan the headers and build more descriptive maps of classes, consts, functions
+        includes = [];
         for hdr in srcfiles:
             decls = parser.parse(hdr)
             self.namespaces = parser.namespaces
             logging.info("\n\n===== Header: %s =====", hdr)
             logging.info("Namespaces: %s", parser.namespaces)
+            if decls:
+                includes.append('#include "' + hdr + '"')
             for decl in decls:
                 logging.info("\n--- Incoming ---\n%s", pformat(decl, 4))
                 name = decl[0]
@@ -1107,7 +1066,7 @@ class JavaWrapperGenerator(object):
             self.save("%s/%s+%s.java" % (output_path, module, ci.jname), classJavaCode)
             moduleCppCode.write(ci.generateCppCode())
             ci.cleanupCodeStreams()
-        self.save(output_path+"/"+module+".cpp", Template(T_CPP_MODULE).substitute(m = module, M = module.upper(), code = moduleCppCode.getvalue()))
+        self.save(output_path+"/"+module+".cpp", Template(T_CPP_MODULE).substitute(m = module, M = module.upper(), code = moduleCppCode.getvalue(), includes = "\n".join(includes)))
         self.save(output_path+"/"+module+".txt", self.makeReport())
 
     def makeReport(self):
@@ -1235,6 +1194,7 @@ class JavaWrapperGenerator(object):
                     if "O" in a.out:
                         if not type_dict[a.ctype]["j_type"].startswith("MatOf"):
                             j_epilogue.append("Converters.Mat_to_%(t)s(%(n)s_mat, %(n)s);" % {"t" : a.ctype, "n" : a.name})
+                            j_epilogue.append( "%s_mat.release();" % a.name )
                         c_epilogue.append( "%(t)s_to_Mat( %(n)s, %(n)s_mat );" % {"n" : a.name, "t" : a.ctype} )
                 else:
                     fields = type_dict[a.ctype].get("jn_args", ((a.ctype, ""),))

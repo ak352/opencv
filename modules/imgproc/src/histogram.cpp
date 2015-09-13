@@ -1220,7 +1220,10 @@ private:
 
 }
 
-void cv::calcHist( const Mat* images, int nimages, const int* channels,
+#if defined(HAVE_IPP)
+namespace cv
+{
+static bool ipp_calchist(const Mat* images, int nimages, const int* channels,
                    InputArray _mask, OutputArray _hist, int dims, const int* histSize,
                    const float** ranges, bool uniform, bool accumulate )
 {
@@ -1228,13 +1231,10 @@ void cv::calcHist( const Mat* images, int nimages, const int* channels,
 
     CV_Assert(dims > 0 && histSize);
 
-    const uchar* const histdata = _hist.getMat().ptr();
     _hist.create(dims, histSize, CV_32F);
     Mat hist = _hist.getMat(), ihist = hist;
     ihist.flags = (ihist.flags & ~CV_MAT_TYPE_MASK)|CV_32S;
 
-#ifdef HAVE_IPP
-    CV_IPP_CHECK()
     {
         if (nimages == 1 && images[0].type() == CV_8UC1 && dims == 1 && channels &&
                 channels[0] == 0 && mask.empty() && images[0].dims <= 2 &&
@@ -1256,13 +1256,36 @@ void cv::calcHist( const Mat* images, int nimages, const int* channels,
             if (ok)
             {
                 ihist.convertTo(hist, CV_32F);
-                CV_IMPL_ADD(CV_IMPL_IPP|CV_IMPL_MT);
-                return;
+                CV_IMPL_ADD(CV_IMPL_IPP);
+                return true;
             }
-            setIppErrorStatus();
         }
     }
+    return false;
+}
+}
 #endif
+
+void cv::calcHist( const Mat* images, int nimages, const int* channels,
+                   InputArray _mask, OutputArray _hist, int dims, const int* histSize,
+                   const float** ranges, bool uniform, bool accumulate )
+{
+
+    CV_IPP_RUN(nimages == 1 && images[0].type() == CV_8UC1 && dims == 1 && channels &&
+                channels[0] == 0 && _mask.getMat().empty() && images[0].dims <= 2 &&
+                !accumulate && uniform,
+                ipp_calchist(images, nimages, channels,
+                   _mask, _hist, dims, histSize,
+                   ranges, uniform, accumulate));
+
+    Mat mask = _mask.getMat();
+
+    CV_Assert(dims > 0 && histSize);
+
+    const uchar* const histdata = _hist.getMat().ptr();
+    _hist.create(dims, histSize, CV_32F);
+    Mat hist = _hist.getMat(), ihist = hist;
+    ihist.flags = (ihist.flags & ~CV_MAT_TYPE_MASK)|CV_32S;
 
     if( !accumulate || histdata != hist.data )
         hist = Scalar(0.);
@@ -2284,15 +2307,20 @@ double cv::compareHist( InputArray _H1, InputArray _H2, int method )
 
     CV_Assert( it.planes[0].isContinuous() && it.planes[1].isContinuous() );
 
+#if CV_SSE2
+    bool haveSIMD = checkHardwareSupport(CV_CPU_SSE2);
+#endif
+
     for( size_t i = 0; i < it.nplanes; i++, ++it )
     {
         const float* h1 = it.planes[0].ptr<float>();
         const float* h2 = it.planes[1].ptr<float>();
         len = it.planes[0].rows*it.planes[0].cols*H1.channels();
+        j = 0;
 
         if( (method == CV_COMP_CHISQR) || (method == CV_COMP_CHISQR_ALT))
         {
-            for( j = 0; j < len; j++ )
+            for( ; j < len; j++ )
             {
                 double a = h1[j] - h2[j];
                 double b = (method == CV_COMP_CHISQR) ? h1[j] : h1[j] + h2[j];
@@ -2302,7 +2330,51 @@ double cv::compareHist( InputArray _H1, InputArray _H2, int method )
         }
         else if( method == CV_COMP_CORREL )
         {
-            for( j = 0; j < len; j++ )
+            #if CV_SSE2
+            if (haveSIMD)
+            {
+                __m128d v_s1 = _mm_setzero_pd(), v_s2 = v_s1;
+                __m128d v_s11 = v_s1, v_s22 = v_s1, v_s12 = v_s1;
+
+                for ( ; j <= len - 4; j += 4)
+                {
+                    __m128 v_a = _mm_loadu_ps(h1 + j);
+                    __m128 v_b = _mm_loadu_ps(h2 + j);
+
+                    // 0-1
+                    __m128d v_ad = _mm_cvtps_pd(v_a);
+                    __m128d v_bd = _mm_cvtps_pd(v_b);
+                    v_s12 = _mm_add_pd(v_s12, _mm_mul_pd(v_ad, v_bd));
+                    v_s11 = _mm_add_pd(v_s11, _mm_mul_pd(v_ad, v_ad));
+                    v_s22 = _mm_add_pd(v_s22, _mm_mul_pd(v_bd, v_bd));
+                    v_s1 = _mm_add_pd(v_s1, v_ad);
+                    v_s2 = _mm_add_pd(v_s2, v_bd);
+
+                    // 2-3
+                    v_ad = _mm_cvtps_pd(_mm_castsi128_ps(_mm_srli_si128(_mm_castps_si128(v_a), 8)));
+                    v_bd = _mm_cvtps_pd(_mm_castsi128_ps(_mm_srli_si128(_mm_castps_si128(v_b), 8)));
+                    v_s12 = _mm_add_pd(v_s12, _mm_mul_pd(v_ad, v_bd));
+                    v_s11 = _mm_add_pd(v_s11, _mm_mul_pd(v_ad, v_ad));
+                    v_s22 = _mm_add_pd(v_s22, _mm_mul_pd(v_bd, v_bd));
+                    v_s1 = _mm_add_pd(v_s1, v_ad);
+                    v_s2 = _mm_add_pd(v_s2, v_bd);
+                }
+
+                double CV_DECL_ALIGNED(16) ar[10];
+                _mm_store_pd(ar, v_s12);
+                _mm_store_pd(ar + 2, v_s11);
+                _mm_store_pd(ar + 4, v_s22);
+                _mm_store_pd(ar + 6, v_s1);
+                _mm_store_pd(ar + 8, v_s2);
+
+                s12 += ar[0] + ar[1];
+                s11 += ar[2] + ar[3];
+                s22 += ar[4] + ar[5];
+                s1 += ar[6] + ar[7];
+                s2 += ar[8] + ar[9];
+            }
+            #endif
+            for( ; j < len; j++ )
             {
                 double a = h1[j];
                 double b = h2[j];
@@ -2316,7 +2388,6 @@ double cv::compareHist( InputArray _H1, InputArray _H2, int method )
         }
         else if( method == CV_COMP_INTERSECT )
         {
-            j = 0;
             #if CV_NEON
             float32x4_t v_result = vdupq_n_f32(0.0f);
             for( ; j <= len - 4; j += 4 )
@@ -2324,13 +2395,61 @@ double cv::compareHist( InputArray _H1, InputArray _H2, int method )
             float CV_DECL_ALIGNED(16) ar[4];
             vst1q_f32(ar, v_result);
             result += ar[0] + ar[1] + ar[2] + ar[3];
+            #elif CV_SSE2
+            if (haveSIMD)
+            {
+                __m128d v_result = _mm_setzero_pd();
+                for ( ; j <= len - 4; j += 4)
+                {
+                    __m128 v_src = _mm_min_ps(_mm_loadu_ps(h1 + j),
+                                              _mm_loadu_ps(h2 + j));
+                    v_result = _mm_add_pd(v_result, _mm_cvtps_pd(v_src));
+                    v_src = _mm_castsi128_ps(_mm_srli_si128(_mm_castps_si128(v_src), 8));
+                    v_result = _mm_add_pd(v_result, _mm_cvtps_pd(v_src));
+                }
+
+                double CV_DECL_ALIGNED(16) ar[2];
+                _mm_store_pd(ar, v_result);
+                result += ar[0] + ar[1];
+            }
             #endif
             for( ; j < len; j++ )
                 result += std::min(h1[j], h2[j]);
         }
         else if( method == CV_COMP_BHATTACHARYYA )
         {
-            for( j = 0; j < len; j++ )
+            #if CV_SSE2
+            if (haveSIMD)
+            {
+                __m128d v_s1 = _mm_setzero_pd(), v_s2 = v_s1, v_result = v_s1;
+                for ( ; j <= len - 4; j += 4)
+                {
+                    __m128 v_a = _mm_loadu_ps(h1 + j);
+                    __m128 v_b = _mm_loadu_ps(h2 + j);
+
+                    __m128d v_ad = _mm_cvtps_pd(v_a);
+                    __m128d v_bd = _mm_cvtps_pd(v_b);
+                    v_s1 = _mm_add_pd(v_s1, v_ad);
+                    v_s2 = _mm_add_pd(v_s2, v_bd);
+                    v_result = _mm_add_pd(v_result, _mm_sqrt_pd(_mm_mul_pd(v_ad, v_bd)));
+
+                    v_ad = _mm_cvtps_pd(_mm_castsi128_ps(_mm_srli_si128(_mm_castps_si128(v_a), 8)));
+                    v_bd = _mm_cvtps_pd(_mm_castsi128_ps(_mm_srli_si128(_mm_castps_si128(v_b), 8)));
+                    v_s1 = _mm_add_pd(v_s1, v_ad);
+                    v_s2 = _mm_add_pd(v_s2, v_bd);
+                    v_result = _mm_add_pd(v_result, _mm_sqrt_pd(_mm_mul_pd(v_ad, v_bd)));
+                }
+
+                double CV_DECL_ALIGNED(16) ar[6];
+                _mm_store_pd(ar, v_s1);
+                _mm_store_pd(ar + 2, v_s2);
+                _mm_store_pd(ar + 4, v_result);
+                s1 += ar[0] + ar[1];
+                s2 += ar[2] + ar[3];
+                result += ar[4] + ar[5];
+            }
+            #endif
+            for( ; j < len; j++ )
             {
                 double a = h1[j];
                 double b = h2[j];
@@ -2341,7 +2460,7 @@ double cv::compareHist( InputArray _H1, InputArray _H2, int method )
         }
         else if( method == CV_COMP_KL_DIV )
         {
-            for( j = 0; j < len; j++ )
+            for( ; j < len; j++ )
             {
                 double p = h1[j];
                 double q = h2[j];

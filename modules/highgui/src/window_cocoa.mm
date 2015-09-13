@@ -156,6 +156,8 @@ CV_IMPL int cvInitSystem( int , char** )
     //[application finishLaunching];
     //atexit(icvCocoaCleanup);
 
+    setlocale(LC_NUMERIC,"C");
+
     return 0;
 }
 
@@ -253,7 +255,7 @@ CV_IMPL void cvResizeWindow( const char* name, int width, int height)
     //cout << "cvResizeWindow" << endl;
     NSAutoreleasePool* localpool = [[NSAutoreleasePool alloc] init];
     CVWindow *window = cvGetWindow(name);
-    if(window) {
+    if(window && ![window autosize]) {
         NSRect frame = [window frame];
         frame.size.width = width;
         frame.size.height = height;
