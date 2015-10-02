@@ -584,9 +584,10 @@ void cv::Canny( InputArray _src, OutputArray _dst,
     const int type = _src.type(), depth = CV_MAT_DEPTH(type), cn = CV_MAT_CN(type);
     const Size size = _src.size();
 
-    CV_Assert( depth == CV_8U );
+    CV_Assert( depth == CV_8U ); ////Input depth must be an 8-bit unsigned (integer or char?)
     _dst.create(size, CV_8U);
 
+    ////Where is L2 gradient set?
     if (!L2gradient && (aperture_size & CV_CANNY_L2_GRADIENT) == CV_CANNY_L2_GRADIENT)
     {
         // backward compatibility
@@ -594,12 +595,15 @@ void cv::Canny( InputArray _src, OutputArray _dst,
         L2gradient = true;
     }
 
+    ////Aperture size should be odd message should be supplemented with should be [3,7]??
     if ((aperture_size & 1) == 0 || (aperture_size != -1 && (aperture_size < 3 || aperture_size > 7)))
         CV_Error(CV_StsBadFlag, "Aperture size should be odd");
 
+    ////Swap thresholds such that low < high
     if (low_thresh > high_thresh)
         std::swap(low_thresh, high_thresh);
 
+    ////What does this macro do? Does ir run oclCanny?
     CV_OCL_RUN(_dst.isUMat() && (cn == 1 || cn == 3),
                ocl_Canny(_src, _dst, (float)low_thresh, (float)high_thresh, aperture_size, L2gradient, cn, size))
 
@@ -688,6 +692,7 @@ while (borderPeaks.try_pop(m))
 
 #else
 
+////Initialise 2 matrices for sobel gradients of depth 16S (16-bit short int) with channels cn
     Mat dx(src.rows, src.cols, CV_16SC(cn));
     Mat dy(src.rows, src.cols, CV_16SC(cn));
 
@@ -696,30 +701,34 @@ while (borderPeaks.try_pop(m))
 
     if (L2gradient)
     {
+      ////Why do the values need to be bounded? So as not to cause overflow when squared, I suppose
         low_thresh = std::min(32767.0, low_thresh);
         high_thresh = std::min(32767.0, high_thresh);
 
         if (low_thresh > 0) low_thresh *= low_thresh;
         if (high_thresh > 0) high_thresh *= high_thresh;
     }
-    int low = cvFloor(low_thresh);
+    int low = cvFloor(low_thresh);////round down
     int high = cvFloor(high_thresh);
 
     ptrdiff_t mapstep = src.cols + 2;
+    ////This buffer is of size (X+2)(Y+2)+CN*(Y+2)*3*INT... why?
     AutoBuffer<uchar> buffer((src.cols+2)*(src.rows+2) + cn * mapstep * 3 * sizeof(int));
 
+    ////What's a mag_buffer? Why is called a mag_buffer? This buffer will be scrolled later
+    ////An array of 3 pointers corresponding to the beginning of 3 consecutive rows, starting from the 1st row
     int* mag_buf[3];
     mag_buf[0] = (int*)(uchar*)buffer;
     mag_buf[1] = mag_buf[0] + mapstep*cn;
     mag_buf[2] = mag_buf[1] + mapstep*cn;
-    memset(mag_buf[0], 0, /* cn* */mapstep*sizeof(int));
+    memset(mag_buf[0], 0, /* cn* */mapstep*sizeof(int));////Set the first row to 0 using memset - fast?
 
     uchar* map = (uchar*)(mag_buf[2] + mapstep*cn);
     memset(map, 1, mapstep);
-    memset(map + mapstep*(src.rows + 1), 1, mapstep);
+    memset(map + mapstep*(src.rows + 1), 1, mapstep);////Initialise the first and the last row to 1
 
-    int maxsize = std::max(1 << 10, src.cols * src.rows / 10);
-    std::vector<uchar*> stack(maxsize);
+    int maxsize = std::max(1 << 10, src.cols * src.rows / 10); ////Bound maxsize
+    std::vector<uchar*> stack(maxsize);////Create a stack of size of image /10
     uchar **stack_top = &stack[0];
     uchar **stack_bottom = &stack[0];
 
@@ -734,7 +743,9 @@ while (borderPeaks.try_pop(m))
          *  *  *
         3   2   1
     */
-
+    ////Check what is CANNY_PUSH and CANNY_POP doing
+    ////pushing d will push it to the top  and set d to point to uchar(2)...why?
+    ////popping d will ensure that d is the pointer that is at the top of the stack after popping
     #define CANNY_PUSH(d)    *(d) = uchar(2), *stack_top++ = (d)
     #define CANNY_POP(d)     (d) = *--stack_top
 
@@ -787,7 +798,7 @@ while (borderPeaks.try_pop(m))
                 }
 #endif
                 for ( ; j < width; ++j)
-                    _norm[j] = std::abs(int(_dx[j])) + std::abs(int(_dy[j]));
+		  _norm[j] = std::abs(int(_dx[j])) + std::abs(int(_dy[j]));////calculate ||dx|| + ||dy||
             }
             else
             {
@@ -824,7 +835,7 @@ while (borderPeaks.try_pop(m))
                 }
 #endif
                 for ( ; j < width; ++j)
-                    _norm[j] = int(_dx[j])*_dx[j] + int(_dy[j])*_dy[j];
+		  _norm[j] = int(_dx[j])*_dx[j] + int(_dy[j])*_dy[j];////L2 norm = euclidean distance
             }
 
             if (cn > 1)
@@ -833,7 +844,7 @@ while (borderPeaks.try_pop(m))
                 {
                     int maxIdx = jn;
                     for(int k = 1; k < cn; ++k)
-                        if(_norm[jn + k] > _norm[maxIdx]) maxIdx = jn + k;
+		      if(_norm[jn + k] > _norm[maxIdx]) maxIdx = jn + k;////Take the norm as the max. norm among all channels (sure?)
                     _norm[j] = _norm[maxIdx];
                     _dx[j] = _dx[maxIdx];
                     _dy[j] = _dy[maxIdx];
@@ -859,6 +870,7 @@ while (borderPeaks.try_pop(m))
         const short* _x = dx.ptr<short>(i-1);
         const short* _y = dy.ptr<short>(i-1);
 
+	////resize stack as required
         if ((stack_top - stack_bottom) + src.cols > maxsize)
         {
             int sz = (int)(stack_top - stack_bottom);
@@ -885,16 +897,17 @@ while (borderPeaks.try_pop(m))
 
                 int tg22x = x * TG22;
 
+		////What are these numbers tg22x and tg67x doing?
                 if (y < tg22x)
                 {
-                    if (m > _mag[j-1] && m >= _mag[j+1]) goto __ocv_canny_push;
+		  if (m > _mag[j-1] && m >= _mag[j+1]) goto __ocv_canny_push; ////Here if magnitude is greater than or eq. pixel at x+1 and x-1
                 }
                 else
                 {
                     int tg67x = tg22x + (x << (CANNY_SHIFT+1));
                     if (y > tg67x)
                     {
-                        if (m > _mag[j+magstep2] && m >= _mag[j+magstep1]) goto __ocv_canny_push;
+		      if (m > _mag[j+magstep2] && m >= _mag[j+magstep1]) goto __ocv_canny_push;//if greater than or eq. y-1 and y+1
                     }
                     else
                     {
@@ -935,9 +948,9 @@ __ocv_canny_push:
             stack_bottom = &stack[0];
             stack_top = stack_bottom + sz;
         }
-
+	////If any of the 8 neighbouring pixels is 0, put them on stack
         CANNY_POP(m);
-
+	
         if (!m[-1])         CANNY_PUSH(m - 1);
         if (!m[1])          CANNY_PUSH(m + 1);
         if (!m[-mapstep-1]) CANNY_PUSH(m - mapstep - 1);
@@ -956,7 +969,7 @@ __ocv_canny_push:
     for (int i = 0; i < src.rows; i++, pmap += mapstep, pdst += dst.step)
     {
         for (int j = 0; j < src.cols; j++)
-            pdst[j] = (uchar)-(pmap[j] >> 1);
+	  pdst[j] = (uchar)-(pmap[j] >> 1);////Why is pmap divided by 2
     }
 }
 
